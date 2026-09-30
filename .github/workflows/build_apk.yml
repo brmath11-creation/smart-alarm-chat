@@ -1,74 +1,125 @@
 name: Build Android APK
 
 on:
-  push:
-    branches:
-      - main
-  workflow_dispatch:
+push:
+branches: [ "main" ]
+pull_request:
+branches: [ "main" ]
+workflow_dispatch:
+
+permissions:
+contents: write
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+build:
+name: Build Release APK
+runs-on: ubuntu-latest
 
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+steps:
+  - name: Checkout Source Code
+    uses: actions/checkout@v4
 
-      - name: Set up Flutter
-        uses: subosito/flutter-action@v2
-        with:
-          flutter-version: '3.24.0'
-          channel: 'stable'
+  - name: Set up Java JDK
+    uses: actions/setup-java@v4
+    with:
+      distribution: 'temurin'
+      java-version: '17'
+      cache: 'gradle'
 
-      - name: Generate Clean Android Project
-        run: |
-          rm -rf android
-          flutter create . --platforms=android --project-name smart_alarm --org com.smartalarm.pakbagas
+  - name: Set up Flutter Environment
+    uses: subosito/flutter-action@v2
+    with:
+      flutter-version: '3.x'
+      channel: 'stable'
+      cache: true
 
-      - name: Configure Android Permissions and WakeLock
-        run: |
-          python3 - << 'EOF'
-          manifest_path = "android/app/src/main/AndroidManifest.xml"
-          with open(manifest_path, "r", encoding="utf-8") as f:
-              content = f.read()
+  - name: Fetch Dependencies
+    run: flutter pub get
 
-          permissions = """
-              <uses-permission android:name="android.permission.INTERNET"/>
-              <uses-permission android:name="android.permission.VIBRATE"/>
-              <uses-permission android:name="android.permission.WAKE_LOCK"/>
-              <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
-              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
-          """
-          content = content.replace(">", ">" + permissions, 1)
+  # Membuat struktur native Android otomatis jika repositori baru berisi folder Dart
+  - name: Generate Android Native Scaffold
+    run: |
+      if [ ! -d "android" ]; then
+        echo "Membuat struktur folder native Android secara otomatis..."
+        flutter create . --platforms=android --org com.pakbagas.smartalarm
+      fi
 
-          activity_attrs = 'android:showWhenLocked="true" android:turnScreenOn="true" android:keepScreenOn="true"'
-          content = content.replace("<activity", f"<activity {activity_attrs}", 1)
+  # Konfigurasi izin Android Manifest lengkap untuk Alarm, Layar Kunci, Getar, dan Mikrofon
+  - name: Inject Android Manifest and Permissions
+    run: |
+      cat << 'EOF' > android/app/src/main/AndroidManifest.xml
+      <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:tools="http://schemas.android.com/tools"
+          package="com.pakbagas.smartalarm">
 
-          with open(manifest_path, "w", encoding="utf-8") as f:
-              f.write(content)
-          EOF
+          <!-- Izin Operasi Alarm Sistem & Audio Perangkat Keras -->
+          <uses-permission android:name="android.permission.INTERNET" />
+          <uses-permission android:name="android.permission.RECORD_AUDIO" />
+          <uses-permission android:name="android.permission.VIBRATE" />
+          <uses-permission android:name="android.permission.WAKE_LOCK" />
+          <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+          <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+          <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+          <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+          <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+          <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+          <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+          <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
-      - name: Configure Gradle Settings
-        run: |
-          build_gradle="android/app/build.gradle"
-          if [ -f "$build_gradle" ]; then
-            sed -i '/android {/a \    lintOptions {\n        checkReleaseBuilds false\n        abortOnError false\n    }' "$build_gradle"
-          fi
+          <!-- Query deklarasi Google Speech Recognizer untuk Android 11 ke atas -->
+          <queries>
+              <intent>
+                  <action android:name="android.speech.RecognitionService" />
+              </intent>
+          </queries>
 
-      - name: Get Dependencies
-        run: flutter pub get
+          <application
+              android:label="Smart Alarm"
+              android:name="${applicationName}"
+              android:icon="@mipmap/ic_launcher"
+              android:showWhenLocked="true"
+              android:turnScreenOn="true">
+              <activity
+                  android:name=".MainActivity"
+                  android:exported="true"
+                  android:launchMode="singleTop"
+                  android:theme="@style/LaunchTheme"
+                  android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+                  android:hardwareAccelerated="true"
+                  android:windowSoftInputMode="adjustResize"
+                  android:showWhenLocked="true"
+                  android:turnScreenOn="true"
+                  android:showForAllUsers="true">
+                  <meta-data
+                    android:name="io.flutter.embedding.android.NormalTheme"
+                    android:resource="@style/NormalTheme"
+                    />
+                  <intent-filter>
+                      <action android:name="android.intent.action.MAIN"/>
+                      <category android:name="android.intent.category.LAUNCHER"/>
+                  </intent-filter>
+              </activity>
+              <meta-data
+                  android:name="flutterEmbedding"
+                  android:value="2" />
+          </application>
+      </manifest>
+      EOF
 
-      - name: Build APK
-        run: |
-          flutter build apk --release --no-tree-shake-icons || flutter build apk --debug
+  # Penyesuaian versi Android SDK agar kompatibel dengan modul audio & wakelock modern
+  - name: Adjust Android SDK Compile Version
+    run: |
+      sed -i 's/compileSdkVersion flutter.compileSdkVersion/compileSdkVersion 34/g' android/app/build.gradle || true
+      sed -i 's/targetSdkVersion flutter.targetSdkVersion/targetSdkVersion 34/g' android/app/build.gradle || true
 
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: smart-alarm-apk
-          path: build/app/outputs/flutter-apk/*.apk
+  # Kompilasi APK rilis dengan argumen API Key
+  - name: Build Android Release APK
+    run: flutter build apk --release --dart-define=GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+
+  # Unggah hasil kompilasi APK ke GitHub Actions Artifacts
+  - name: Upload APK Artifact
+    uses: actions/upload-artifact@v4
+    with:
+      name: release-apk
+      path: build/app/outputs/flutter-apk/app-release.apk
+      retention-days: 14
