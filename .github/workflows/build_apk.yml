@@ -1,3 +1,5 @@
+STREAMING_CHUNK:Configuring workflow triggers and environment...
+
 name: Build Android APK
 
 on:
@@ -12,6 +14,8 @@ steps:
 - name: Checkout Repository
 uses: actions/checkout@v4
 
+STREAMING_CHUNK:Preparing Flutter SDK and Java runtime...
+
   - name: Setup Java JDK
     uses: actions/setup-java@v4
     with:
@@ -24,7 +28,9 @@ uses: actions/checkout@v4
       channel: 'stable'
       cache: true
 
-  # Simpan cadangan AndroidManifest kustom yang berisi izin layar & getar
+
+STREAMING_CHUNK:Managing Android manifest backup and project generation...
+
   - name: Backup Custom AndroidManifest
     run: |
       mkdir -p /tmp/manifest_backup
@@ -32,12 +38,10 @@ uses: actions/checkout@v4
         cp android/app/src/main/AndroidManifest.xml /tmp/manifest_backup/AndroidManifest.xml
       fi
 
-  # Lengkapi struktur Gradle Android yang belum ada
   - name: Inisialisasi Kerangka Android Lengkap
     run: |
       flutter create --platforms=android --org com.smartalarm.app .
 
-  # Kembalikan AndroidManifest kustom agar izin tidak tertimpa
   - name: Restore Custom AndroidManifest
     run: |
       if [ -f /tmp/manifest_backup/AndroidManifest.xml ]; then
@@ -48,14 +52,15 @@ uses: actions/checkout@v4
     run: |
       flutter pub get
 
-  # Kompilasi rilis APK Android
+
+STREAMING_CHUNK:Compiling release APK and uploading artifact...
+
   - name: Kompilasi APK Release
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     run: |
       flutter build apk --release --dart-define=GEMINI_API_KEY=$GEMINI_API_KEY
 
-  # Unggah berkas APK ke menu Artifacts agar siap diunduh
   - name: Upload Artifact APK
     uses: actions/upload-artifact@v4
     with:
