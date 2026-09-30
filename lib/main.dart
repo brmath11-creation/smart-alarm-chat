@@ -63,8 +63,10 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
   @override
   void initState() {
     super.initState();
+    // Template pesan sambutan awal dari Pak Bagas
     _messages.add(ChatMessage(
-      text: 'Halo! Saya asisten alarm pintarmu. Mau pasang alarm untuk jam berapa? (Bisa pakai bahasa apa saja atau bahasa gaul).',
+      text:
+          'Halo, saya Pak Bagas. Saya bisa membantumu untuk menyetel alarm otomatis sesuai permintaanmu. Katakan mau distel alarm untuk kapan? Berikan waktu yang spesifik yaa',
       isUser: false,
       time: DateFormat('HH:mm').format(DateTime.now()),
     ));
@@ -98,17 +100,26 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
   Future<String> _processWithAI(String prompt) async {
     if (geminiApiKey.isEmpty) {
       setState(() => _isOnline = false);
-      return "Kunci API Gemini belum terbaca. Pastikan GEMINI_API_KEY sudah disimpan di GitHub Secrets dan workflow sudah selesai dirakit ulang.";
+      return "Kunci API Gemini belum terbaca. Pastikan GEMINI_API_KEY sudah disimpan di GitHub Secrets.";
     }
 
-    // Menggunakan model stabil aktif resmi Google dengan sistem toleransi fallback bertingkat
-    final models = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash'];
+    // Menggunakan model resmi aktif gemini-3.8-flash sesuai instruksi respons server Google
+    final models = [
+      'gemini-3.8-flash',
+      'gemini-3.8-flash-lite',
+      'gemini-3.5-flash',
+    ];
+
+    // Instruksi sistem: penanganan bahasa santai/gaul + aturan default jam 12.00 siang jika waktu tidak spesifik
     final systemInstruction =
         "Kamu adalah asisten pengatur alarm cerdas bernama Smart Alarm by Pak Bagas. "
         "Tugasmu adalah menganalisis pesan pengguna yang meminta setel alarm, pengingat, atau bangun tidur "
-        "dalam bahasa apa pun dan ragam bahasa apa pun (baku/santai/gaul). "
-        "Konfirmasi kembali alarm tersebut dengan ramah, sebutkan jam berapa alarm disetel dan tujuannya. "
-        "Jika waktu tidak jelas, tanyakan kembali dengan sopan.";
+        "dalam bahasa apa pun dan ragam bahasa apa pun (baku/santai/gaul/singkatan). "
+        "Konfirmasi kembali alarm tersebut dengan ramah, sebutkan jam berapa alarm disetel dan tujuannya.\n\n"
+        "ATURAN KHUSUS WAKTU:\n"
+        "Jika pengguna meminta disetelkan alarm tetapi TIDAK menyebutkan jam atau waktu yang spesifik (misalnya hanya bilang: 'bangunin gw ya', 'setel alarm dong', 'ingetin gw nanti'), "
+        "kamu WAJIB menyetel alarm secara otomatis ke pukul 12.00 siang. "
+        "Pada situasi ini, kamu WAJIB memberitahukan pengguna secara jelas di balasanmu bahwa karena dia tidak memberikan waktu yang spesifik, alarm otomatis kamu setelkan ke pukul 12.00 siang.";
 
     String lastError = '';
 
@@ -195,7 +206,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                   fit: BoxFit.cover,
                   errorBuilder: (context, error, stackTrace) => Container(
                     color: Colors.white24,
-                    child: const Icon(Icons.alarm, color: Colors.white),
+                    child: const Icon(Icons.person, color: Colors.white),
                   ),
                   loadingBuilder: (context, child, progress) {
                     if (progress == null) return child;
