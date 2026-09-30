@@ -1,22 +1,26 @@
 name: smart_alarm_chat
-description: "Aplikasi Smart Alarm berbasis room chat dan kecerdasan buatan."
+description: "Aplikasi Smart Alarm berbasis room chat dan kecerdasan buatan Pak Bagas."
 publish_to: "none"
 version: 1.0.0+1
 
 environment:
-  sdk: ">=3.0.0 <4.0.0"
+sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
-  flutter:
-    sdk: flutter
-  http: ^1.2.0
-  intl: ^0.19.0
-  audioplayers: ^6.0.0
+flutter:
+sdk: flutter
+http: ^1.2.0
+intl: ^0.19.0
+audioplayers: ^6.0.0
+speech_to_text: ^7.0.0
+permission_handler: ^11.3.1
+wakelock_plus: ^1.2.8
+shared_preferences: ^2.2.3
 
 dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  flutter_lints: ^3.0.0
+flutter_test:
+sdk: flutter
+flutter_lints: ^3.0.0
 
 flutter:
-  uses-material-design: true
+uses-material-design: true
