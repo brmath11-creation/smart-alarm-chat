@@ -53,10 +53,10 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
   bool _isLoading = false;
   bool _isOnline = true;
 
-  // Membaca API Key dari GitHub Secrets
+  // Membaca API Key yang disuntikkan secara aman oleh GitHub Secrets
   static const String geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
 
-  // URL gambar Google Drive via CDN Image Proxy agar 100% lolos proteksi CORS di Web dan HP
+  // URL Foto Profil Google Drive via CDN Proxy (Anti-Blokir CORS di Web & Android)
   static const String profileImageUrl =
       'https://wsrv.nl/?url=https://lh3.googleusercontent.com/d/1JmEoK4F_UYpktkq4Vq9_ahhrAkSzBxXk&w=150&h=150&fit=cover';
 
@@ -98,46 +98,69 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
   Future<String> _processWithAI(String prompt) async {
     if (geminiApiKey.isEmpty) {
       setState(() => _isOnline = false);
-      return "Kunci API Gemini belum terpasang di GitHub Secrets.";
+      return "Kunci API Gemini belum terbaca. Pastikan GEMINI_API_KEY sudah disimpan di GitHub Secrets dan workflow sudah selesai dirakit ulang.";
     }
 
-    // Menggunakan endpoint generasi aktif Google: gemini-2.5-flash
-    final url = Uri.parse(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=$geminiApiKey');
-
+    // Menggunakan model stabil aktif resmi Google dengan sistem toleransi fallback bertingkat
+    final models = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-2.5-flash'];
     final systemInstruction =
-        "Kamu adalah asisten pengatur alarm cerdas. Tugasmu adalah menganalisis pesan pengguna "
-        "yang meminta setel alarm, pengingat, atau bangun tidur dalam bahasa apa pun dan ragam bahasa apa pun (baku/gaul). "
+        "Kamu adalah asisten pengatur alarm cerdas bernama Smart Alarm by Pak Bagas. "
+        "Tugasmu adalah menganalisis pesan pengguna yang meminta setel alarm, pengingat, atau bangun tidur "
+        "dalam bahasa apa pun dan ragam bahasa apa pun (baku/santai/gaul). "
         "Konfirmasi kembali alarm tersebut dengan ramah, sebutkan jam berapa alarm disetel dan tujuannya. "
         "Jika waktu tidak jelas, tanyakan kembali dengan sopan.";
 
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          "contents": [
-            {
-              "parts": [
-                {"text": "$systemInstruction\n\nPesan pengguna: $prompt"}
-              ]
-            }
-          ]
-        }),
+    String lastError = '';
+
+    for (final model in models) {
+      final url = Uri.parse(
+        'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$geminiApiKey',
       );
 
-      if (response.statusCode == 200) {
-        setState(() => _isOnline = true);
-        final data = jsonDecode(response.body);
-        return data['candidates'][0]['content']['parts'][0]['text'];
-      } else {
-        setState(() => _isOnline = false);
-        return "Gagal memproses ke server AI (Kode: ${response.statusCode}).";
+      try {
+        final response = await http.post(
+          url,
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': geminiApiKey,
+          },
+          body: jsonEncode({
+            "contents": [
+              {
+                "parts": [
+                  {"text": "$systemInstruction\n\nPesan pengguna: $prompt"}
+                ]
+              }
+            ]
+          }),
+        );
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          final candidates = data['candidates'];
+          if (candidates != null && candidates.isNotEmpty) {
+            final reply = candidates[0]['content']?['parts']?[0]?['text'];
+            if (reply != null && reply.toString().trim().isNotEmpty) {
+              setState(() => _isOnline = true);
+              return reply.toString().trim();
+            }
+          }
+        } else {
+          try {
+            final errData = jsonDecode(response.body);
+            final msg = errData['error']?['message'] ?? 'Kode: ${response.statusCode}';
+            lastError = "$model ($msg)";
+          } catch (_) {
+            lastError = "$model (Kode: ${response.statusCode})";
+          }
+        }
+      } catch (e) {
+        lastError = "Koneksi jaringan terputus";
       }
-    } catch (e) {
-      setState(() => _isOnline = false);
-      return "Koneksi terputus. Pastikan internet di HP/Laptop menyala.";
     }
+
+    setState(() => _isOnline = false);
+    return "Gagal memproses ke server AI ($lastError). Coba periksa koneksi internet.";
   }
 
   void _scrollToBottom() {
@@ -162,7 +185,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
         title: Row(
           children: [
             const SizedBox(width: 8),
-            // Avatar Profil Foto dari Google Drive anti-blokir
+            // Avatar Profil Google Drive Anti-Blokir
             ClipOval(
               child: SizedBox(
                 width: 42,
@@ -172,7 +195,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                   fit: BoxFit.cover,
                   errorBuilder: (context, error, stackTrace) => Container(
                     color: Colors.white24,
-                    child: const Icon(Icons.person, color: Colors.white),
+                    child: const Icon(Icons.alarm, color: Colors.white),
                   ),
                   loadingBuilder: (context, child, progress) {
                     if (progress == null) return child;
@@ -194,7 +217,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            // Nama Profil dan Indikator Status Online
+            // Nama Profil dan Status Online Interaktif
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -211,7 +234,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                   const SizedBox(height: 2),
                   Row(
                     children: [
-                      // Titik neon hijau menyala atau abu-abu redup jika offline
+                      // Titik Hijau Menyala (Glowing Dot)
                       Container(
                         width: 8,
                         height: 8,
@@ -229,7 +252,6 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                               : [],
                         ),
                       ),
-                      // Teks Online hanya muncul jika sistem aktif
                       if (_isOnline) ...[
                         const SizedBox(width: 6),
                         const Text(
@@ -288,7 +310,10 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
           if (_isLoading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 6),
-              child: Text("Bot sedang membaca perintah...", style: TextStyle(fontSize: 12, color: Colors.black54)),
+              child: Text(
+                "Bot sedang membaca perintah...",
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
             ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
