@@ -25,10 +25,10 @@ uses: actions/checkout@v4
       channel: 'stable'
       cache: true
 
-  - name: Buat Kerangka Android Resmi
+  - name: Recreate Android Project Platform
     run: flutter create --platforms=android --org com.smartalarm.app .
 
-  - name: Pasang Konfigurasi Izin Layar dan Getar
+  - name: Configure Android Permissions and Features
     run: |
       cat << 'EOF' > android/app/src/main/AndroidManifest.xml
       <manifest xmlns:android="http://schemas.android.com/apk/res/android"
@@ -70,15 +70,15 @@ uses: actions/checkout@v4
       </manifest>
       EOF
 
-  - name: Pasang Dependencies
+  - name: Install Dependencies
     run: flutter pub get
 
-  - name: Kompilasi APK Release
+  - name: Build Android Release APK
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     run: flutter build apk --release --dart-define=GEMINI_API_KEY=$GEMINI_API_KEY
 
-  - name: Upload Artifact APK
+  - name: Upload APK Artifact
     uses: actions/upload-artifact@v4
     with:
       name: smart-alarm-apk
