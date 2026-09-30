@@ -24,23 +24,38 @@ uses: actions/checkout@v4
       channel: 'stable'
       cache: true
 
-  <!-- STREAMING_CHUNK:Generating missing Android Gradle scaffolding automatically... -->
+  # Simpan cadangan AndroidManifest kustom yang berisi izin layar & getar
+  - name: Backup Custom AndroidManifest
+    run: |
+      mkdir -p /tmp/manifest_backup
+      if [ -f android/app/src/main/AndroidManifest.xml ]; then
+        cp android/app/src/main/AndroidManifest.xml /tmp/manifest_backup/AndroidManifest.xml
+      fi
+
+  # Lengkapi struktur Gradle Android yang belum ada
   - name: Inisialisasi Kerangka Android Lengkap
     run: |
       flutter create --platforms=android --org com.smartalarm.app .
+
+  # Kembalikan AndroidManifest kustom agar izin tidak tertimpa
+  - name: Restore Custom AndroidManifest
+    run: |
+      if [ -f /tmp/manifest_backup/AndroidManifest.xml ]; then
+        cp /tmp/manifest_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
+      fi
 
   - name: Pasang Modul dan Dependencies
     run: |
       flutter pub get
 
-  <!-- STREAMING_CHUNK:Compiling release APK with environment secrets... -->
+  # Kompilasi rilis APK Android
   - name: Kompilasi APK Release
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
     run: |
       flutter build apk --release --dart-define=GEMINI_API_KEY=$GEMINI_API_KEY
 
-  <!-- STREAMING_CHUNK:Uploading APK Artifact for direct download... -->
+  # Unggah berkas APK ke menu Artifacts agar siap diunduh
   - name: Upload Artifact APK
     uses: actions/upload-artifact@v4
     with:
