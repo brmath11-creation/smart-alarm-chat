@@ -13,7 +13,7 @@ class SmartAlarmApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Smart Alarm Chat',
+      title: 'Smart Alarm by Pak Bagas',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
@@ -51,8 +51,9 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
   final ScrollController _scrollController = ScrollController();
   final List<ChatMessage> _messages = [];
   bool _isLoading = false;
+  bool _isOnline = true;
 
-  // Membaca API Key yang disuntikkan oleh GitHub Actions
+  // Membaca API Key yang disuntikkan secara aman oleh GitHub Secrets
   static const String geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
 
   @override
@@ -92,42 +93,62 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
 
   Future<String> _processWithAI(String prompt) async {
     if (geminiApiKey.isEmpty) {
-      return "Kunci API Gemini belum terkonfigurasi. Pastikan Secrets sudah diatur di GitHub.";
+      setState(() => _isOnline = false);
+      return "Kunci API Gemini belum terkonfigurasi. Pastikan GEMINI_API_KEY sudah diatur di GitHub Secrets.";
     }
 
-    final url = Uri.parse(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$geminiApiKey');
+    // Menggunakan model aktif terbaru dengan sistem toleransi fallback
+    final models = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+    String lastError = '';
 
-    final systemInstruction =
-        "Kamu adalah asisten pengatur alarm cerdas. Tugasmu adalah menganalisis pesan pengguna "
-        "yang meminta setel alarm, pengingat, atau bangun tidur dalam bahasa apa pun dan ragam bahasa apa pun (baku/gaul). "
-        "Konfirmasi kembali alarm tersebut dengan ramah, sebutkan jam berapa alarm disetel dan tujuannya. "
-        "Jika waktu tidak jelas, tanyakan kembali dengan sopan.";
-
-    try {
-      final response = await http.post(
-        url,
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          "contents": [
-            {
-              "parts": [
-                {"text": "$systemInstruction\n\nPesan pengguna: $prompt"}
-              ]
-            }
-          ]
-        }),
+    for (final model in models) {
+      final url = Uri.parse(
+        'https://generativelanguage.googleapis.com/v1beta/models/$model:generateContent?key=$geminiApiKey',
       );
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        return data['candidates'][0]['content']['parts'][0]['text'];
-      } else {
-        return "Gagal menghubungi AI (Kode: ${response.statusCode}). Coba periksa koneksi internet.";
+      final systemInstruction =
+          "Kamu adalah asisten pengatur alarm cerdas bernama Smart Alarm by Pak Bagas. "
+          "Tugasmu adalah menganalisis pesan pengguna yang meminta setel alarm, pengingat, atau bangun tidur "
+          "dalam bahasa apa pun dan ragam bahasa apa pun (baku/santai/gaul). "
+          "Konfirmasi kembali alarm tersebut dengan ramah, sebutkan jam berapa alarm disetel dan tujuannya. "
+          "Jika waktu yang diminta tidak jelas, tanyakan kembali dengan sopan.";
+
+      try {
+        final response = await http.post(
+          url,
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({
+            "contents": [
+              {
+                "parts": [
+                  {"text": "$systemInstruction\n\nPesan pengguna: $prompt"}
+                ]
+              }
+            ]
+          }),
+        );
+
+        if (response.statusCode == 200) {
+          final data = jsonDecode(response.body);
+          final candidates = data['candidates'];
+          if (candidates != null && candidates.isNotEmpty) {
+            final reply = candidates[0]['content']?['parts']?[0]?['text'];
+            if (reply != null && reply.toString().trim().isNotEmpty) {
+              setState(() => _isOnline = true);
+              return reply.toString().trim();
+            }
+          }
+        } else {
+          lastError = "Kode: ${response.statusCode}";
+        }
+      } catch (e) {
+        lastError = "Koneksi terganggu";
       }
-    } catch (e) {
-      return "Terjadi kendala teknis saat memproses perintah.";
     }
+
+    // Jika seluruh upaya gagal, perbarui status menjadi offline
+    setState(() => _isOnline = false);
+    return "Gagal menghubungi AI ($lastError). Coba periksa koneksi internet.";
   }
 
   void _scrollToBottom() {
@@ -147,18 +168,69 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFECE5DD),
       appBar: AppBar(
-        title: const Row(
+        titleSpacing: 0,
+        title: Row(
           children: [
+            const SizedBox(width: 8),
+            // Avatar Profil Google Drive Anti-Blokir
             CircleAvatar(
+              radius: 20,
               backgroundColor: Colors.white24,
-              child: Icon(Icons.alarm, color: Colors.white),
+              child: ClipOval(
+                child: Image.network(
+                  'https://lh3.googleusercontent.com/d/1JmEoK4F_UYpktkq4Vq9_ahhrAkSzBxXk',
+                  headers: const {'Referrer-Policy': 'no-referrer'},
+                  width: 40,
+                  height: 40,
+                  fit: BoxFit.cover,
+                  errorBuilder: (context, error, stackTrace) {
+                    return const Icon(Icons.alarm, color: Colors.white);
+                  },
+                ),
+              ),
             ),
-            SizedBox(width: 12),
+            const SizedBox(width: 12),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Smart Alarm Bot', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
-                Text('Online', style: TextStyle(fontSize: 12, color: Colors.white70)),
+                const Text(
+                  'Smart Alarm by Pak Bagas',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.white,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    // Lingkaran Hijau Menyala (Glowing Dot)
+                    Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: _isOnline ? const Color(0xFF25D366) : Colors.grey,
+                        boxShadow: _isOnline
+                            ? [
+                                BoxShadow(
+                                  color: const Color(0xFF25D366).withOpacity(0.8),
+                                  blurRadius: 6,
+                                  spreadRadius: 2,
+                                ),
+                              ]
+                            : [],
+                      ),
+                    ),
+                    if (_isOnline) ...[
+                      const SizedBox(width: 6),
+                      const Text(
+                        'Online',
+                        style: TextStyle(fontSize: 12, color: Colors.white70),
+                      ),
+                    ],
+                  ],
+                ),
               ],
             ),
           ],
@@ -208,7 +280,10 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
           if (_isLoading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 4),
-              child: Text("Bot sedang membaca perintah...", style: TextStyle(fontSize: 12, color: Colors.black54)),
+              child: Text(
+                "Sedang membaca perintah...",
+                style: TextStyle(fontSize: 12, color: Colors.black54),
+              ),
             ),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
