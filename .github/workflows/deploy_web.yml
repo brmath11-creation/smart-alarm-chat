@@ -1,63 +1,51 @@
-name: Deploy Web to GitHub Pages
+name: Deploy Web Application
 
 on:
-  push:
-    branches: [ "main" ]
-  workflow_dispatch:
+push:
+branches: [ "main" ]
+workflow_dispatch:
 
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+contents: read
+pages: write
+id-token: write
 
 concurrency:
-  group: "pages"
-  cancel-in-progress: false
+group: "pages"
+cancel-in-progress: false
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+build-and-deploy:
+environment:
+name: github-pages
+url: ${{ steps.deployment.outputs.page_url }}
+runs-on: ubuntu-latest
 
-      - name: Setup Java JDK
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
+steps:
+  - name: Checkout Repository
+    uses: actions/checkout@v4
 
-      - name: Setup Flutter SDK
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          cache: true
+  - name: Set up Flutter Environment
+    uses: subosito/flutter-action@v2
+    with:
+      flutter-version: '3.x'
+      channel: 'stable'
+      cache: true
 
-      - name: Inisialisasi Platform Web
-        run: |
-          flutter create --platforms=web --org com.smartalarm.app .
+  - name: Retrieve Project Packages
+    run: flutter pub get
 
-      - name: Pasang Modul dan Dependencies
-        run: flutter pub get
+  - name: Build Web Application
+    run: flutter build web --release --base-href "/${{ github.event.repository.name }}/"
 
-      - name: Kompilasi Flutter Web
-        env:
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        run: |
-          REPO_NAME=$(basename "${{ github.repository }}")
-          flutter build web --release --base-href "/$REPO_NAME/" --dart-define=GEMINI_API_KEY=$GEMINI_API_KEY
+  - name: Configure GitHub Pages
+    uses: actions/configure-pages@v4
 
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
+  - name: Upload GitHub Pages Artifact
+    uses: actions/upload-pages-artifact@v3
+    with:
+      path: 'build/web'
 
-      - name: Upload Artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: build/web
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+  - name: Deploy to GitHub Pages
+    id: deployment
+    uses: actions/deploy-pages@v4
