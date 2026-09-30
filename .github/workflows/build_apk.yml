@@ -1,4 +1,4 @@
-STREAMING_CHUNK:Configuring workflow triggers and environment...
+STREAMING_CHUNK:Configuring workflow triggers and runner environment...
 
 name: Build Android APK
 
@@ -14,7 +14,7 @@ steps:
 - name: Checkout Repository
 uses: actions/checkout@v4
 
-STREAMING_CHUNK:Preparing Flutter SDK and Java runtime...
+STREAMING_CHUNK:Setting up Java and Flutter development environments...
 
   - name: Setup Java JDK
     uses: actions/setup-java@v4
@@ -29,31 +29,46 @@ STREAMING_CHUNK:Preparing Flutter SDK and Java runtime...
       cache: true
 
 
-STREAMING_CHUNK:Managing Android manifest backup and project generation...
+STREAMING_CHUNK:Generating Android scaffold and patching permissions...
 
-  - name: Backup Custom AndroidManifest
-    run: |
-      mkdir -p /tmp/manifest_backup
-      if [ -f android/app/src/main/AndroidManifest.xml ]; then
-        cp android/app/src/main/AndroidManifest.xml /tmp/manifest_backup/AndroidManifest.xml
-      fi
-
-  - name: Inisialisasi Kerangka Android Lengkap
+  - name: Buat Kerangka Android Resmi
     run: |
       flutter create --platforms=android --org com.smartalarm.app .
 
-  - name: Restore Custom AndroidManifest
+  - name: Suntikkan Izin Layar Bangun dan Getar
     run: |
-      if [ -f /tmp/manifest_backup/AndroidManifest.xml ]; then
-        cp /tmp/manifest_backup/AndroidManifest.xml android/app/src/main/AndroidManifest.xml
-      fi
+      python3 -c '
+      manifest_path = "android/app/src/main/AndroidManifest.xml"
+      with open(manifest_path, "r", encoding="utf-8") as f:
+          content = f.read()
+
+      permissions = """
+          <uses-permission android:name="android.permission.VIBRATE"/>
+          <uses-permission android:name="android.permission.WAKE_LOCK"/>
+          <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+          <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+          <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+      """
+
+      # Sisipkan izin sistem setelah tag pembuka <manifest>
+      if "<manifest" in content:
+          idx = content.find(">") + 1
+          content = content[:idx] + permissions + content[idx:]
+
+      # Sisipkan fitur bangunkan layar dan tampil saat HP terkunci
+      content = content.replace("<activity", "<activity android:showWhenLocked=\"true\" android:turnScreenOn=\"true\" android:keepScreenOn=\"true\"")
+
+      with open(manifest_path, "w", encoding="utf-8") as f:
+          f.write(content)
+      print("Izin AndroidManifest berhasil disuntikkan secara aman!")
+      '
+
+
+STREAMING_CHUNK:Compiling release APK and uploading artifact bundle...
 
   - name: Pasang Modul dan Dependencies
     run: |
       flutter pub get
-
-
-STREAMING_CHUNK:Compiling release APK and uploading artifact...
 
   - name: Kompilasi APK Release
     env:
