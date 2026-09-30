@@ -1,10 +1,9 @@
-STREAMING_CHUNK:Configuring workflow triggers and runner environment...
-
 name: Build Android APK
 
 on:
 push:
-branches: [ "main" ]
+branches:
+- main
 workflow_dispatch:
 
 jobs:
@@ -13,8 +12,6 @@ runs-on: ubuntu-latest
 steps:
 - name: Checkout Repository
 uses: actions/checkout@v4
-
-STREAMING_CHUNK:Setting up Java and Flutter development environments...
 
   - name: Setup Java JDK
     uses: actions/setup-java@v4
@@ -28,53 +25,58 @@ STREAMING_CHUNK:Setting up Java and Flutter development environments...
       channel: 'stable'
       cache: true
 
-
-STREAMING_CHUNK:Generating Android scaffold and patching permissions...
-
   - name: Buat Kerangka Android Resmi
-    run: |
-      flutter create --platforms=android --org com.smartalarm.app .
+    run: flutter create --platforms=android --org com.smartalarm.app .
 
-  - name: Suntikkan Izin Layar Bangun dan Getar
+  - name: Pasang Konfigurasi Izin Layar dan Getar
     run: |
-      python3 -c '
-      manifest_path = "android/app/src/main/AndroidManifest.xml"
-      with open(manifest_path, "r", encoding="utf-8") as f:
-          content = f.read()
-
-      permissions = """
+      cat << 'EOF' > android/app/src/main/AndroidManifest.xml
+      <manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          package="com.smartalarm.app">
           <uses-permission android:name="android.permission.VIBRATE"/>
           <uses-permission android:name="android.permission.WAKE_LOCK"/>
           <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
           <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
           <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
-      """
+          <uses-permission android:name="android.permission.INTERNET"/>
+          <application
+              android:label="Smart Alarm by Pak Bagas"
+              android:name="${applicationName}"
+              android:icon="@mipmap/ic_launcher">
+              <activity
+                  android:name=".MainActivity"
+                  android:exported="true"
+                  android:launchMode="singleTop"
+                  android:theme="@style/LaunchTheme"
+                  android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
+                  android:hardwareAccelerated="true"
+                  android:windowSoftInputMode="adjustResize"
+                  android:showWhenLocked="true"
+                  android:turnScreenOn="true"
+                  android:keepScreenOn="true">
+                  <meta-data
+                    android:name="io.flutter.embedding.android.NormalTheme"
+                    android:resource="@style/NormalTheme"
+                    />
+                  <intent-filter>
+                      <action android:name="android.intent.action.MAIN"/>
+                      <category android:name="android.intent.category.LAUNCHER"/>
+                  </intent-filter>
+              </activity>
+              <meta-data
+                  android:name="flutterEmbedding"
+                  android:value="2" />
+          </application>
+      </manifest>
+      EOF
 
-      # Sisipkan izin sistem setelah tag pembuka <manifest>
-      if "<manifest" in content:
-          idx = content.find(">") + 1
-          content = content[:idx] + permissions + content[idx:]
-
-      # Sisipkan fitur bangunkan layar dan tampil saat HP terkunci
-      content = content.replace("<activity", "<activity android:showWhenLocked=\"true\" android:turnScreenOn=\"true\" android:keepScreenOn=\"true\"")
-
-      with open(manifest_path, "w", encoding="utf-8") as f:
-          f.write(content)
-      print("Izin AndroidManifest berhasil disuntikkan secara aman!")
-      '
-
-
-STREAMING_CHUNK:Compiling release APK and uploading artifact bundle...
-
-  - name: Pasang Modul dan Dependencies
-    run: |
-      flutter pub get
+  - name: Pasang Dependencies
+    run: flutter pub get
 
   - name: Kompilasi APK Release
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-    run: |
-      flutter build apk --release --dart-define=GEMINI_API_KEY=$GEMINI_API_KEY
+    run: flutter build apk --release --dart-define=GEMINI_API_KEY=$GEMINI_API_KEY
 
   - name: Upload Artifact APK
     uses: actions/upload-artifact@v4
