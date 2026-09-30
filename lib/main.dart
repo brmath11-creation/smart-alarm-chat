@@ -5,6 +5,10 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:speech_to_text/speech_to_text.dart' as stt;
+import 'package:permission_handler/permission_handler.dart';
+import 'package:wakelock_plus/wakelock_plus.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -78,7 +82,18 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
   bool _isLoading = false;
   bool _isOnline = true;
 
-  // GitHub Secrets API Key
+  // Status Konfigurasi Wajib HP (Kunci Aplikasi)
+  bool _isMandatorySetupDone = false;
+  bool _checkedLockScreen = false;
+  bool _checkedBatteryOptimization = false;
+  bool _checkedPermissions = false;
+
+  // Fitur Voice Input (Speech to Text)
+  late stt.SpeechToText _speech;
+  bool _isListening = false;
+  bool _speechAvailable = false;
+
+  // API Key disuntikkan secara aman via GitHub Secrets (--dart-define) saat kompilasi APK
   static const String geminiApiKey = String.fromEnvironment('GEMINI_API_KEY');
 
   // Foto Profil CDN Proxy Anti-Blokir
@@ -90,11 +105,11 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
   Timer? _vibrationPulseTimer;
   Timer? _ringingDurationTimer;
   AlarmItem? _currentlyRingingAlarm;
-  int _ringSecondsRemaining = 300; // 5 menit dering (300 detik)
+  int _ringSecondsRemaining = 300; // 5 menit dering
   
   // Pengaturan Nada Dering & Getar
   bool _isVibrateEnabled = true;
-  double _alarmVolume = 1.0; // Volume maksimal 100%
+  double _alarmVolume = 1.0;
   
   final AudioPlayer _audioPlayer = AudioPlayer();
   final List<RingtoneOption> _availableRingtones = const [
@@ -121,16 +136,19 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
   void initState() {
     super.initState();
     _selectedRingtone = _availableRingtones[0];
+    _speech = stt.SpeechToText();
 
     // Pesan sambutan awal Pak Bagas
     _messages.add(ChatMessage(
       text:
-          'Halo, saya Pak Bagas. Saya bisa membantumu untuk menyetel alarm otomatis sesuai permintaanmu. Katakan mau distel alarm untuk kapan? Berikan waktu yang spesifik yaa',
+          'Halo, saya Pak Bagas. Saya bisa membantumu menyetel alarm otomatis melalui ketikan chat atau rekaman suara. Katakan mau distel alarm untuk kapan? Berikan waktu yang spesifik yaa',
       isUser: false,
       time: DateFormat('HH:mm').format(DateTime.now()),
     ));
 
-    // Memulai mesin pemantau alarm setiap 1 detik
+    // Periksa status verifikasi izin HP pengguna & inisialisasi mesin
+    _checkMandatorySetup();
+    _initSpeechRecognizer();
     _startClockEngine();
   }
 
@@ -143,6 +161,48 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
     _controller.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkMandatorySetup() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isDone = prefs.getBool('mandatory_setup_completed') ?? false;
+    setState(() {
+      _isMandatorySetupDone = isDone;
+    });
+  }
+
+  Future<void> _completeMandatorySetup() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('mandatory_setup_completed', true);
+    setState(() {
+      _isMandatorySetupDone = true;
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Konfigurasi berhasil disimpan! Smart Alarm aktif.'),
+        backgroundColor: Color(0xFF075E54),
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
+  Future<void> _initSpeechRecognizer() async {
+    try {
+      _speechAvailable = await _speech.initialize(
+        onError: (val) {
+          setState(() => _isListening = false);
+        },
+        onStatus: (val) {
+          if (val == 'done' || val == 'notListening') {
+            setState(() => _isListening = false);
+          }
+        },
+      );
+      setState(() {});
+    } catch (_) {
+      _speechAvailable = false;
+    }
   }
 
   void _startClockEngine() {
@@ -165,28 +225,45 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
   }
 
   Future<void> _triggerAlarm(AlarmItem alarm) async {
+    // 1. Menyalakan dan mengunci layar agar tetap aktif
+    try {
+      await WakelockPlus.enable();
+    } catch (_) {}
+
     setState(() {
       alarm.isTriggered = true;
       _currentlyRingingAlarm = alarm;
-      _ringSecondsRemaining = 300; // 5 menit penuh
+      _ringSecondsRemaining = 300;
     });
 
+    // 2. Putar audio di jalur stream ALARM perangkat keras sistem
     try {
+      await _audioPlayer.setAudioContext(
+        const AudioContext(
+          android: AudioContextAndroid(
+            isSpeakerphoneOn: true,
+            stayAwake: true,
+            contentType: AndroidContentType.music,
+            usageType: AndroidUsageType.alarm,
+            audioMode: AndroidAudioMode.normal,
+          ),
+        ),
+      );
       await _audioPlayer.setReleaseMode(ReleaseMode.loop);
       await _audioPlayer.setVolume(_alarmVolume);
       await _audioPlayer.play(UrlSource(_selectedRingtone.url));
     } catch (_) {}
 
+    // 3. Efek denyut getar perangkat keras daya sedang berulang
     if (_isVibrateEnabled) {
       _vibrationPulseTimer?.cancel();
-      // Pola getar berulang kencang (Haptic + Hardware Motor Vibrate)
-      _vibrationPulseTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+      _vibrationPulseTimer = Timer.periodic(const Duration(milliseconds: 650), (_) {
         HapticFeedback.vibrate();
         HapticFeedback.heavyImpact();
       });
     }
 
-    // Timer penghitung mundur 5 menit tanpa henti
+    // 4. Penghitung mundur durasi 5 menit
     _ringingDurationTimer?.cancel();
     _ringingDurationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
@@ -205,6 +282,10 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
     _vibrationPulseTimer?.cancel();
     try {
       await _audioPlayer.stop();
+    } catch (_) {}
+
+    try {
+      await WakelockPlus.disable();
     } catch (_) {}
 
     setState(() {
@@ -232,14 +313,67 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text('Alarm ditunda $minutes menit ke depan.'),
+        content: Text('Alarm berhasil ditunda $minutes menit ke depan.'),
         backgroundColor: const Color(0xFF075E54),
         duration: const Duration(seconds: 2),
       ),
     );
   }
 
+  Future<void> _toggleVoiceRecording() async {
+    if (!_isMandatorySetupDone) {
+      _showMandatoryPopup();
+      return;
+    }
+
+    final status = await Permission.microphone.request();
+    if (!status.isGranted) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Izin mikrofon diperlukan untuk perintah suara.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (_isListening) {
+      await _speech.stop();
+      setState(() => _isListening = false);
+      if (_controller.text.trim().isNotEmpty) {
+        _handleSendMessage();
+      }
+    } else {
+      if (!_speechAvailable) {
+        await _initSpeechRecognizer();
+      }
+
+      setState(() => _isListening = true);
+      await _speech.listen(
+        onResult: (result) {
+          setState(() {
+            _controller.text = result.recognizedWords;
+          });
+          if (result.finalResult && result.recognizedWords.trim().isNotEmpty) {
+            setState(() => _isListening = false);
+            _handleSendMessage();
+          }
+        },
+        localeId: 'id_ID',
+        listenFor: const Duration(seconds: 20),
+        pauseFor: const Duration(seconds: 3),
+      );
+    }
+  }
+
   Future<void> _handleSendMessage() async {
+    if (!_isMandatorySetupDone) {
+      _showMandatoryPopup();
+      return;
+    }
+
     final text = _controller.text.trim();
     if (text.isEmpty) return;
 
@@ -267,7 +401,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
   Future<String> _processWithAI(String prompt) async {
     if (geminiApiKey.isEmpty) {
       setState(() => _isOnline = false);
-      return "Kunci API Gemini belum terbaca di GitHub Secrets.";
+      return "Kunci API Gemini belum terkonfigurasi.";
     }
 
     final now = DateTime.now();
@@ -281,7 +415,6 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
     final timeStr = DateFormat('HH:mm').format(now);
     final currentDateStr = '$dayName, ${now.day} $monthName ${now.year} pukul $timeStr WIB';
 
-    // Rangkuman konteks 6 obrolan terakhir
     String historyContext = "";
     final recentMessages = _messages.length > 6
         ? _messages.sublist(_messages.length - 6)
@@ -290,29 +423,25 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
       historyContext += "${m.isUser ? 'Pengguna' : 'Pak Bagas'}: ${m.text}\n";
     }
 
-    // Instruksi sistem ketat dengan konfirmasi waktu spesifik
     final fullPrompt =
-        "Kamu adalah Pak Bagas, asisten pengatur alarm cerdas.\n"
-        "WAKTU PERANGKAT SAAT INI: $currentDateStr (Format: YYYY=${now.year}, MM=${now.month}, DD=${now.day}, HH=${now.hour}, mm=${now.minute}).\n\n"
-        "ATURAN & TUGAS WAJIB:\n"
-        "1. Pengguna bisa meminta 1 atau LEBIH DARI SATU alarm sekaligus dalam 1 pesan.\n"
-        "2. NADA BALASAN & KONFIRMASI JAM: Santai, akrab, jelas, singkat (maksimal 1-2 kalimat). KAMU WAJIB MENULISKAN JAM TARGET DAN HARI/TANGGAL HASIL PERHITUNGAN SECARA SPESIFIK (Contoh: 'Oke siap, alarm sudah saya stel untuk hari ini jam 15:34 WIB ya'). DILARANG HANYA MEMBALAS 'alarm 2 menit lagi sudah dipasang' TANPA MENYEBUTKAN ANGKA JAM HASIL PERHITUNGANNYA!\n"
-        "3. JIKA WAKTU RELATIF (contoh '2 menit lagi', '1 jam lagi'): Hitung tepat jam target dari WAKTU PERANGKAT SAAT INI ($timeStr), lalu sebutkan jam target tersebut di balasan teksmu.\n"
-        "4. JIKA WAKTU TIDAK SPESIFIK: Otomatis setel ke jam 12.00 siang hari yang dimaksud dan beritahu santai bahwa disetel jam 12 siang karena pengguna tidak menyebutkan jam yang jelas.\n"
-        "5. KETERANGAN KEGIATAN: Jika pengguna menyebutkan kegiatan (contoh: 'mencuci baju', 'bangun tidur', 'kuliah'), masukkan ke field 'note' dengan format 'Waktunya ...'. JIKA USER TIDAK MENYEBUTKAN KEGIATAN, kosongkan string note menjadi: \"\".\n"
-        "6. JIKA PERINTAH SANGAT TIDAK JELAS / BUKAN TENTANG ALARM: Balas TEPAT DENGAN: 'Aku tidak mengerti maksudmu, bisa kau jelaskan lebih detail agar aku bisa setel alarm sesuai permintaanmu?' dan beri action 'NONE'.\n"
-        "7. JIKA MEMBATALKAN/REVISI: Sesuaikan dan jelaskan santai waktu yang baru atau yang dibatalkan.\n\n"
-        "FORMAT WAJIB KELUARAN:\n"
-        "Kamu WAJIB mengakhiri jawabanmu dengan blok data JSON tersembunyi berformat seperti ini:\n"
+        "Kamu adalah Pak Bagas, asisten pengatur alarm cerdas via chat dan suara.\n"
+        "WAKTU PERANGKAT SAAT INI: $currentDateStr (Tahun=${now.year}, Bulan=${now.month}, Tanggal=${now.day}, Jam=${now.hour}, Menit=${now.minute}).\n\n"
+        "PEDOMAN & LOGIKA WAKTU (PENTING):\n"
+        "1. Pengguna dapat menggunakan BAHASA GAUL/TIDAK BAKU (contoh: 'ntar jam 8 malem ya gas', 'bangunin 45 mnt lg', 'batalin alarm', 'besok subuh 04:30').\n"
+        "2. NADA RESPON: Santai, ramah, bersahabat, ringkas (1-2 kalimat). KAMU WAJIB MENULISKAN JAM TARGET DAN TANGGAL DENGAN JELAS (Contoh: 'Siap! Alarm sudah distel untuk hari ini pukul 15:34 WIB ya.').\n"
+        "3. WAKTU RELATIF: Jika user berkata '10 menit lagi', tambahkan tepat 10 menit dari waktu perangkat saat ini ($timeStr) dan sebutkan hasil jamnya.\n"
+        "4. KETERANGAN AKTIVITAS: Masukkan ke properti 'note'. Jika tidak ada, biarkan string kosong \"\".\n"
+        "5. JIKA BUKAN TENTANG ALARM: Balas sopan: 'Aku tidak mengerti maksudmu, bisa kau jelaskan lebih detail agar aku bisa setel alarm sesuai permintaanmu?' dengan action 'NONE'.\n\n"
+        "FORMAT OUTPUT WAJIB:\n"
+        "Akhiri jawabanmu dengan blok JSON tersembunyi berikut:\n"
         "|||JSON_DATA\n"
         "{\"action\":\"SET|CANCEL|NONE\",\"alarms\":[{\"year\":${now.year},\"month\":${now.month},\"day\":${now.day},\"hour\":15,\"minute\":34,\"note\":\"\"}]}\n"
         "JSON_DATA|||\n\n"
         "RIWAYAT PERCAKAPAN:\n"
         "$historyContext\n"
-        "Perintah baru pengguna: $prompt";
+        "Perintah baru: $prompt";
 
-    // Urutan model resmi aktif Google AI Studio
-    final models = ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
+    final models = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'];
 
     for (final model in models) {
       final url = Uri.parse(
@@ -335,10 +464,10 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
               }
             ],
             "generationConfig": {
-              "maxOutputTokens": 1000
+              "maxOutputTokens": 800
             }
           }),
-        ).timeout(const Duration(seconds: 25));
+        ).timeout(const Duration(seconds: 20));
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
@@ -362,13 +491,11 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
             }
           }
         }
-      } catch (_) {
-        // Lanjut ke endpoint cadangan
-      }
+      } catch (_) {}
     }
 
     setState(() => _isOnline = false);
-    return "Koneksi ke Pak Bagas terputus. Pastikan internet di HP menyala yaa.";
+    return "Koneksi ke Pak Bagas terputus. Pastikan HP terhubung ke internet yaa.";
   }
 
   String _parseAndRegisterAlarms(String rawReply) {
@@ -408,24 +535,11 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
         }
         return visibleText.isNotEmpty
             ? visibleText
-            : "Oke siap, alarmnya sudah berhasil aku stel ya.";
+            : "Siap, alarmnya sudah berhasil aku jadwalkan ya.";
       }
     } catch (_) {}
 
     return rawReply.replaceAll(RegExp(r'\|\|\|JSON_DATA[\s\S]*?JSON_DATA\|\|\|'), '').trim();
-  }
-
-  String _formatRekapItem(AlarmItem item) {
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
-    ];
-    final dt = item.targetTime;
-    final dateStr = '${dt.day} ${months[dt.month - 1]} ${dt.year}';
-    final timeStr =
-        '${dt.hour.toString().padLeft(2, '0')}.${dt.minute.toString().padLeft(2, '0')}';
-    final noteStr = item.note.trim().isEmpty ? '-' : item.note.trim();
-    return '$dateStr ($timeStr) : $noteStr';
   }
 
   void _scrollToBottom() {
@@ -438,6 +552,140 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
         );
       }
     });
+  }
+
+  void _showMandatoryPopup() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final allChecked = _checkedLockScreen && _checkedBatteryOptimization && _checkedPermissions;
+
+            return PopScope(
+              canPop: false,
+              child: AlertDialog(
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                title: Row(
+                  children: const [
+                    Icon(Icons.warning_amber_rounded, color: Colors.orange, size: 28),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Konfigurasi Wajib HP',
+                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      ),
+                    ),
+                  ],
+                ),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Agar alarm dapat menyalakan layar saat HP terkunci dan tidak dimatikan paksa oleh Android, selesaikan 3 langkah wajib berikut:',
+                        style: TextStyle(fontSize: 13, color: Colors.black87),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Checklist 1: Layar Kunci
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        activeColor: const Color(0xFF075E54),
+                        title: const Text(
+                          '1. Izin Tampilkan di Layar Kunci',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        subtitle: const Text(
+                          'Aktifkan "Tampilkan di Layar Kunci" & "Tampil di atas aplikasi lain" di pengaturan HP.',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        value: _checkedLockScreen,
+                        onChanged: (val) {
+                          setDialogState(() => _checkedLockScreen = val ?? false);
+                        },
+                      ),
+
+                      // Checklist 2: Baterai Tidak Dibatasi
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        activeColor: const Color(0xFF075E54),
+                        title: const Text(
+                          '2. Penghemat Baterai: Tidak Dibatasi',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        subtitle: const Text(
+                          'Pilih "Tidak Dibatasi / No Restrictions" agar sistem HP tidak mematikan timer alarm saat HP tidur.',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        value: _checkedBatteryOptimization,
+                        onChanged: (val) {
+                          setDialogState(() => _checkedBatteryOptimization = val ?? false);
+                        },
+                      ),
+
+                      // Checklist 3: Izin Mikrofon & Notifikasi
+                      CheckboxListTile(
+                        contentPadding: EdgeInsets.zero,
+                        activeColor: const Color(0xFF075E54),
+                        title: const Text(
+                          '3. Izin Mikrofon & Alarm Presisi',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                        ),
+                        subtitle: const Text(
+                          'Diperlukan untuk perintah suara dan dering tepat detik ke-00.',
+                          style: TextStyle(fontSize: 11),
+                        ),
+                        value: _checkedPermissions,
+                        onChanged: (val) {
+                          setDialogState(() => _checkedPermissions = val ?? false);
+                        },
+                      ),
+
+                      const SizedBox(height: 10),
+                      ElevatedButton.icon(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blueGrey.shade800,
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(double.infinity, 38),
+                        ),
+                        icon: const Icon(Icons.settings, size: 16),
+                        label: const Text('Buka Pengaturan HP Sekarang', style: TextStyle(fontSize: 12)),
+                        onPressed: () async {
+                          await openAppSettings();
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: allChecked ? const Color(0xFF075E54) : Colors.grey.shade400,
+                      foregroundColor: Colors.white,
+                      minimumSize: const Size(double.infinity, 42),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    onPressed: allChecked
+                        ? () {
+                            Navigator.of(ctx).pop();
+                            _completeMandatorySetup();
+                          }
+                        : null,
+                    child: const Text(
+                      'SAYA SUDAH MENGATUR & BUKA APLIKASI',
+                      style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   void _openSettingsDialog() {
@@ -470,29 +718,38 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'Pengaturan Smart Alarm',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF075E54),
-                    ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Pengaturan Smart Alarm',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF075E54),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.help_outline, color: Color(0xFF075E54)),
+                        tooltip: 'Panduan Pengaturan HP',
+                        onPressed: () {
+                          Navigator.pop(ctx);
+                          _showMandatoryPopup();
+                        },
+                      ),
+                    ],
                   ),
-                  const Divider(height: 20),
+                  const Divider(height: 16),
                   Expanded(
                     child: ListView(
                       children: [
-                        // BAGIAN 1: REKAP ALARM
+                        // Rekap Alarm
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Text(
                               'Rekap Alarm Aktif (${_activeAlarms.length})',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14,
-                                color: Colors.black87,
-                              ),
+                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                             ),
                             if (_activeAlarms.isNotEmpty)
                               TextButton(
@@ -500,10 +757,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                                   setState(() => _activeAlarms.clear());
                                   setModalState(() {});
                                 },
-                                child: const Text(
-                                  'Hapus Semua',
-                                  style: TextStyle(color: Colors.red, fontSize: 12),
-                                ),
+                                child: const Text('Hapus Semua', style: TextStyle(color: Colors.red, fontSize: 12)),
                               ),
                           ],
                         ),
@@ -522,6 +776,10 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                           )
                         else
                           ..._activeAlarms.map((item) {
+                            final dt = item.targetTime;
+                            final timeStr =
+                                '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
+                            final noteStr = item.note.isEmpty ? 'Tanpa label' : item.note;
                             return Container(
                               margin: const EdgeInsets.only(bottom: 6),
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
@@ -532,15 +790,12 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                               ),
                               child: Row(
                                 children: [
-                                  const Icon(Icons.alarm, size: 18, color: Color(0xFF075E54)),
+                                  const Icon(Icons.alarm, size: 20, color: Color(0xFF075E54)),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: Text(
-                                      _formatRekapItem(item),
-                                      style: const TextStyle(
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w500,
-                                      ),
+                                      '$timeStr - $noteStr',
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold),
                                     ),
                                   ),
                                   IconButton(
@@ -559,11 +814,11 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
 
                         const Divider(height: 24),
 
-                        // BAGIAN 2: EFEK GETAR
+                        // Opsi Getar
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
-                          title: const Text('Efek Getar (Vibrasi)'),
-                          subtitle: const Text('Getar kencang berulang saat alarm berdering (5 menit)'),
+                          title: const Text('Getar Daya Sedang (Vibrasi)'),
+                          subtitle: const Text('Denyut getar berulang saat alarm berdering'),
                           activeColor: const Color(0xFF075E54),
                           value: _isVibrateEnabled,
                           onChanged: (val) {
@@ -578,9 +833,9 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
 
                         const Divider(height: 20),
 
-                        // BAGIAN 3: PILIHAN NADA DERING (NAMA BERSIH TANPA KATA KENCANG)
+                        // Nada Dering
                         const Text(
-                          'Pilih Nada Dering',
+                          'Pilihan Nada Dering',
                           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                         ),
                         const SizedBox(height: 6),
@@ -605,7 +860,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
 
                         const SizedBox(height: 12),
 
-                        // BAGIAN 4: SLIDER VOLUME
+                        // Pengatur Volume
                         Row(
                           children: [
                             const Icon(Icons.volume_up, color: Color(0xFF075E54)),
@@ -656,18 +911,13 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
     final timeFormatted =
         '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
 
-    const months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
-      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
-    ];
     final dt = _currentlyRingingAlarm!.targetTime;
-    final dateStr = '${dt.day} ${months[dt.month - 1]} ${dt.year}';
     final timeStr =
-        '${dt.hour.toString().padLeft(2, '0')}.${dt.minute.toString().padLeft(2, '0')}';
+        '${dt.hour.toString().padLeft(2, '0')}:${dt.minute.toString().padLeft(2, '0')}';
     final note = _currentlyRingingAlarm!.note.trim();
 
     return Container(
-      color: const Color(0xFFB71C1C), // Merah pekat layar penuh menutupi chat
+      color: const Color(0xFFB71C1C),
       width: double.infinity,
       height: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
@@ -676,7 +926,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             const Spacer(),
-            const Icon(Icons.alarm_on, color: Colors.white, size: 96),
+            const Icon(Icons.alarm_on, color: Colors.white, size: 90),
             const SizedBox(height: 16),
             const Text(
               'ALARM BERDERING!',
@@ -687,13 +937,13 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                 letterSpacing: 2.0,
               ),
             ),
-            const SizedBox(height: 10),
+            const SizedBox(height: 8),
             Text(
-              '$dateStr ($timeStr)',
-              style: const TextStyle(color: Colors.white70, fontSize: 18),
+              'Pukul $timeStr WIB',
+              style: const TextStyle(color: Colors.white70, fontSize: 20),
             ),
             if (note.isNotEmpty) ...[
-              const SizedBox(height: 12),
+              const SizedBox(height: 14),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 decoration: BoxDecoration(
@@ -713,7 +963,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
             ],
             const SizedBox(height: 20),
             Text(
-              'Berdering otomatis selama: $timeFormatted',
+              'Otomatis berdering: $timeFormatted',
               style: const TextStyle(
                 color: Colors.yellowAccent,
                 fontSize: 16,
@@ -729,15 +979,10 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                     backgroundColor: Colors.white,
                     foregroundColor: const Color(0xFFB71C1C),
                     padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                   ),
                   icon: const Icon(Icons.stop_circle, size: 24),
-                  label: const Text(
-                    'MATIKAN',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
-                  ),
+                  label: const Text('MATIKAN', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                   onPressed: _stopAlarmRinging,
                 ),
                 const SizedBox(width: 16),
@@ -745,21 +990,16 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white,
                     side: const BorderSide(color: Colors.white, width: 2),
-                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
                   ),
-                  icon: const Icon(Icons.snooze, size: 22),
-                  label: const Text(
-                    'Tunda 5 Mnt',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                  ),
+                  icon: const Icon(Icons.snooze, size: 20),
+                  label: const Text('Tunda 5 Mnt', style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold)),
                   onPressed: () => _snoozeAlarm(5),
                 ),
               ],
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 24),
           ],
         ),
       ),
@@ -776,7 +1016,6 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
         title: Row(
           children: [
             const SizedBox(width: 8),
-            // Avatar Profil Google Drive Anti-Blokir
             ClipOval(
               child: SizedBox(
                 width: 42,
@@ -788,38 +1027,17 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                     color: Colors.white24,
                     child: const Icon(Icons.person, color: Colors.white),
                   ),
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) return child;
-                    return Container(
-                      color: Colors.white10,
-                      child: const Center(
-                        child: SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: Colors.white,
-                          ),
-                        ),
-                      ),
-                    );
-                  },
                 ),
               ),
             ),
             const SizedBox(width: 12),
-            // Nama Profil dan Status Online
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
                     'Smart Alarm by Pak Bagas',
-                    style: TextStyle(
-                      fontSize: 16,
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                    ),
+                    style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold),
                     overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 2),
@@ -831,24 +1049,13 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                         decoration: BoxDecoration(
                           shape: BoxShape.circle,
                           color: _isOnline ? const Color(0xFF00FF66) : Colors.grey,
-                          boxShadow: _isOnline
-                              ? [
-                                  const BoxShadow(
-                                    color: Color(0xFF00FF66),
-                                    blurRadius: 6,
-                                    spreadRadius: 2,
-                                  ),
-                                ]
-                              : [],
                         ),
                       ),
-                      if (_isOnline) ...[
-                        const SizedBox(width: 6),
-                        const Text(
-                          'Online',
-                          style: TextStyle(fontSize: 12, color: Colors.white70),
-                        ),
-                      ],
+                      const SizedBox(width: 6),
+                      Text(
+                        _isOnline ? 'Online' : 'Offline',
+                        style: const TextStyle(fontSize: 12, color: Colors.white70),
+                      ),
                     ],
                   ),
                 ],
@@ -868,6 +1075,29 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
         children: [
           Column(
             children: [
+              // Banner peringatan jika izin HP belum diselesaikan
+              if (!_isMandatorySetupDone)
+                InkWell(
+                  onTap: _showMandatoryPopup,
+                  child: Container(
+                    color: Colors.amber.shade700,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    child: Row(
+                      children: const [
+                        Icon(Icons.warning, color: Colors.white, size: 20),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Aplikasi Terkunci: Ketuk di sini untuk menyelesaikan Pengaturan Wajib HP.',
+                            style: TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                        Icon(Icons.arrow_forward_ios, color: Colors.white, size: 14),
+                      ],
+                    ),
+                  ),
+                ),
+
               Expanded(
                 child: ListView.builder(
                   controller: _scrollController,
@@ -906,6 +1136,26 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                   },
                 ),
               ),
+
+              // Indikator mendengarkan suara
+              if (_isListening)
+                Container(
+                  width: double.infinity,
+                  color: Colors.red.shade50,
+                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.mic, color: Colors.red, size: 18),
+                      SizedBox(width: 8),
+                      Text(
+                        'Sedang mendengarkan suaramu... Bicara sekarang!',
+                        style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold, fontSize: 13),
+                      ),
+                    ],
+                  ),
+                ),
+
               if (_isLoading)
                 const Padding(
                   padding: EdgeInsets.symmetric(vertical: 6),
@@ -914,18 +1164,34 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                     style: TextStyle(fontSize: 12, color: Colors.black54),
                   ),
                 ),
+
+              // Input Bar: Teks & Mikrofon
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                 color: Colors.white,
                 child: Row(
                   children: [
+                    // Tombol Mikrofon Voice Input
+                    IconButton(
+                      icon: Icon(
+                        _isListening ? Icons.mic : Icons.mic_none,
+                        color: _isListening ? Colors.red : const Color(0xFF075E54),
+                        size: 26,
+                      ),
+                      tooltip: 'Bicara ke Pak Bagas',
+                      onPressed: _toggleVoiceRecording,
+                    ),
+
                     Expanded(
                       child: TextField(
                         controller: _controller,
+                        enabled: _isMandatorySetupDone,
                         textInputAction: TextInputAction.send,
                         onSubmitted: (_) => _handleSendMessage(),
                         decoration: InputDecoration(
-                          hintText: 'Ketik perintah alarm...',
+                          hintText: _isMandatorySetupDone
+                              ? 'Ketik atau ucapkan perintah alarm...'
+                              : 'Selesaikan pengaturan wajib di atas...',
                           contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                           filled: true,
                           fillColor: const Color(0xFFF0F0F0),
@@ -936,12 +1202,12 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(width: 8),
+                    const SizedBox(width: 6),
                     CircleAvatar(
-                      backgroundColor: const Color(0xFF075E54),
+                      backgroundColor: _isMandatorySetupDone ? const Color(0xFF075E54) : Colors.grey,
                       child: IconButton(
                         icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                        onPressed: _handleSendMessage,
+                        onPressed: _isMandatorySetupDone ? _handleSendMessage : _showMandatoryPopup,
                       ),
                     ),
                   ],
@@ -950,7 +1216,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
             ],
           ),
 
-          // Layar penuh merah menutupi seluruh chat ketika alarm berdering
+          // Layar Penuh Merah Berdering
           if (_currentlyRingingAlarm != null)
             Positioned.fill(
               child: _buildFullScreenRingingOverlay(),
