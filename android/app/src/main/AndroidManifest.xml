@@ -1,7 +1,6 @@
 <!-- Izin Perangkat Keras: Efek Getar Motor Penuh (Hardware Vibrator) -->
 <uses-permission android:name="android.permission.VIBRATE"/>
 
-<!-- STREAMING_CHUNK:Configuring wake lock and full screen alarm permissions... -->
 <!-- Izin Membangunkan Layar HP dari Kondisi Layar Mati/Terkunci (WakeLock) -->
 <uses-permission android:name="android.permission.WAKE_LOCK"/>
 
@@ -10,6 +9,8 @@
 
 <!-- Izin Ketepatan Waktu Alarm Presisi di Android Modern -->
 <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+<uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
+<uses-permission android:name="android.permission.INTERNET"/>
 
 <!-- STREAMING_CHUNK:Configuring application activity and screen wake behavior... -->
 <application
@@ -20,7 +21,6 @@
         android:name=".MainActivity"
         android:exported="true"
         android:launchMode="singleTop"
-        android:taskAffinity=""
         android:theme="@style/LaunchTheme"
         android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
         android:hardwareAccelerated="true"
