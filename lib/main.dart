@@ -90,7 +90,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
   Timer? _vibrationPulseTimer;
   Timer? _ringingDurationTimer;
   AlarmItem? _currentlyRingingAlarm;
-  int _ringSecondsRemaining = 300; // 5 menit berdering (300 detik)
+  int _ringSecondsRemaining = 300; // 5 menit dering (300 detik)
   
   // Pengaturan Nada Dering & Getar
   bool _isVibrateEnabled = true;
@@ -131,7 +131,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
       time: DateFormat('HH:mm').format(DateTime.now()),
     ));
 
-    // Memulai mesin pendeteksi alarm setiap 1 detik
+    // Memulai mesin pemantau alarm setiap 1 detik
     _startClockEngine();
   }
 
@@ -177,7 +177,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
       await _audioPlayer.setVolume(_alarmVolume);
       await _audioPlayer.play(UrlSource(_selectedRingtone.url));
     } catch (_) {
-      // Audio fallback jika jaringan/perangkat membatasi
+      // Audio fallback jika perangkat membatasi audio otomatis
     }
 
     // Efek getar berulang jika opsi getar aktif
@@ -283,42 +283,37 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
     final timeStr = DateFormat('HH:mm').format(now);
     final currentDateStr = '$dayName, ${now.day} $monthName ${now.year} pukul $timeStr WIB';
 
-    // Instruksi sistem multi-alarm dan format balasan terstruktur
-    final systemInstruction =
+    // Rangkuman memori obrolan terakhir (maksimal 6 percakapan terakhir agar payload ringan)
+    String historyContext = "";
+    final recentMessages = _messages.length > 6
+        ? _messages.sublist(_messages.length - 6)
+        : _messages;
+    for (final m in recentMessages) {
+      historyContext += "${m.isUser ? 'Pengguna' : 'Pak Bagas'}: ${m.text}\n";
+    }
+
+    // Instruksi sistem multi-alarm terpadu
+    final fullPrompt =
         "Kamu adalah Pak Bagas, asisten pengatur alarm cerdas.\n"
         "WAKTU PERANGKAT SAAT INI: $currentDateStr (Format: YYYY=${now.year}, MM=${now.month}, DD=${now.day}, HH=${now.hour}, mm=${now.minute}).\n\n"
         "ATURAN & TUGAS:\n"
         "1. Pengguna bisa meminta 1 atau LEBIH DARI SATU alarm sekaligus dalam 1 chat.\n"
         "2. NADA BALASAN: Santai, akrab, jelas, singkat (maksimal 1-2 kalimat). Sebutkan semua waktu alarm yang disetel.\n"
-        "3. JIKA WAKTU TIDAK SPESIFIK: Otomatis setel ke jam 12.00 siang hari yang dimaksud dan beritahu santai bahwa disetel jam 12 siang karena tidak menyebutkan jam yang jelas.\n"
-        "4. JIKA PERINTAH SANGAT TIDAK JELAS / BUKAN ALARM: Balas TEPAT DENGAN: 'Aku tidak mengerti maksudmu, bisa kau jelaskan lebih detail agar aku bisa setel alarm sesuai permintaanmu?'\n"
-        "5. JIKA MEMBATALKAN/REVISI: Sesuaikan dan jelaskan santai.\n\n"
+        "3. JIKA WAKTU RELATIF (contoh '2 menit lagi', '1 jam lagi'): Hitung tepat dari WAKTU PERANGKAT SAAT INI.\n"
+        "4. JIKA WAKTU TIDAK SPESIFIK: Otomatis setel ke jam 12.00 siang hari yang dimaksud dan beritahu santai bahwa disetel jam 12 siang karena tidak menyebutkan jam yang jelas.\n"
+        "5. JIKA PERINTAH SANGAT TIDAK JELAS / BUKAN TENTANG ALARM: Balas TEPAT DENGAN: 'Aku tidak mengerti maksudmu, bisa kau jelaskan lebih detail agar aku bisa setel alarm sesuai permintaanmu?' dan beri action 'NONE'.\n"
+        "6. JIKA MEMBATALKAN/REVISI: Sesuaikan dan jelaskan santai.\n\n"
         "FORMAT WAJIB KELUARAN:\n"
         "Kamu WAJIB mengakhiri jawabanmu dengan blok data JSON tersembunyi berformat seperti ini:\n"
         "|||JSON_DATA\n"
-        "{\"action\":\"SET|CANCEL|NONE\",\"alarms\":[{\"year\":2026,\"month\":10,\"day\":1,\"hour\":8,\"minute\":0,\"note\":\"mencuci baju\"}]}\n"
-        "JSON_DATA|||";
+        "{\"action\":\"SET|CANCEL|NONE\",\"alarms\":[{\"year\":${now.year},\"month\":${now.month},\"day\":${now.day},\"hour\":12,\"minute\":0,\"note\":\"label alarm\"}]}\n"
+        "JSON_DATA|||\n\n"
+        "RIWAYAT PERCAKAPAN:\n"
+        "$historyContext\n"
+        "Perintah baru pengguna: $prompt";
 
-    // Menyusun memori riwayat chat
-    final List<Map<String, dynamic>> contents = [];
-    String lastRole = '';
-    for (final m in _messages) {
-      final currentRole = m.isUser ? 'user' : 'model';
-      if (contents.isEmpty && currentRole != 'user') continue;
-      if (currentRole == lastRole && contents.isNotEmpty) {
-        final existingText = contents.last['parts'][0]['text'] as String;
-        contents.last['parts'] = [{'text': '$existingText\n${m.text}'}];
-      } else {
-        contents.add({
-          'role': currentRole,
-          'parts': [{'text': m.text}],
-        });
-        lastRole = currentRole;
-      }
-    }
-
-    // Menargetkan langsung model standar baru Gemini 3.8 Flash untuk kecepatan maksimal (<2 detik)
-    final models = ['gemini-3.8-flash', 'gemini-3.8-flash-lite', 'gemini-3.5-flash'];
+    // Urutan model resmi aktif
+    final models = ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
 
     for (final model in models) {
       final url = Uri.parse(
@@ -333,16 +328,19 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
             'x-goog-api-key': geminiApiKey,
           },
           body: jsonEncode({
-            "system_instruction": {
-              "parts": [{"text": systemInstruction}]
-            },
+            "contents": [
+              {
+                "parts": [
+                  {"text": fullPrompt}
+                ]
+              }
+            ],
             "generationConfig": {
-              "maxOutputTokens": 350,
+              "maxOutputTokens": 300,
               "temperature": 0.2
-            },
-            "contents": contents
+            }
           }),
-        ).timeout(const Duration(seconds: 8));
+        ).timeout(const Duration(seconds: 25)); // Timeout diperpanjang hingga 25 detik untuk jaringan seluler
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
@@ -353,12 +351,12 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
           }
         }
       } catch (_) {
-        // Coba model berikutnya jika ada rintangan koneksi
+        // Melanjutkan ke model cadangan berikutnya jika terjadi kendala jaringan
       }
     }
 
     setState(() => _isOnline = false);
-    return "Aku tidak mengerti maksudmu, bisa kau jelaskan lebih detail agar aku bisa setel alarm sesuai permintaanmu?";
+    return "Koneksi ke Pak Bagas terputus. Pastikan internet di HP menyala yaa.";
   }
 
   String _parseAndRegisterAlarms(String rawReply) {
@@ -401,10 +399,9 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
             : "Oke siap, alarmnya sudah berhasil aku stel ya.";
       }
     } catch (_) {
-      // Jika parsing JSON gagal, tetap kembalikan teks chat bersih
+      // Fallback parsing aman
     }
 
-    // Bersihkan penanda data jika tersisa
     return rawReply.replaceAll(RegExp(r'\|\|\|JSON_DATA[\s\S]*?JSON_DATA\|\|\|'), '').trim();
   }
 
