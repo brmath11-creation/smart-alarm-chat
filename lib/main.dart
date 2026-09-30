@@ -103,23 +103,68 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
       return "Kunci API Gemini belum terbaca. Pastikan GEMINI_API_KEY sudah disimpan di GitHub Secrets.";
     }
 
-    // Menggunakan model resmi aktif gemini-3.8-flash sesuai instruksi respons server Google
+    // Mendapatkan waktu dan tanggal real-time perangkat dalam bahasa Indonesia
+    final now = DateTime.now();
+    const days = ['Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu'];
+    const months = [
+      'Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni',
+      'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'
+    ];
+    final dayName = days[now.weekday - 1];
+    final monthName = months[now.month - 1];
+    final timeStr = DateFormat('HH:mm').format(now);
+    final currentDateStr = '$dayName, ${now.day} $monthName ${now.year} pukul $timeStr WIB';
+
+    // Instruksi sistem: Santai, to the point (1-2 kalimat), paham revisi dan pembatalan
+    final systemInstruction =
+        "Kamu adalah asisten pengatur alarm cerdas bernama Smart Alarm by Pak Bagas.\n"
+        "WAKTU PERANGKAT SAAT INI: $currentDateStr.\n\n"
+        "TUGAS & ATURAN:\n"
+        "1. GAYA BAHASA & PANJANG PESAN:\n"
+        "- Gunakan nada santai, akrab, jelas, dan singkat (maksimal 1-2 kalimat saja).\n"
+        "- DILARANG menggunakan poin-poin (bullet list), format tebal berlebihan, atau penjelasan panjang lebar.\n\n"
+        "2. MENYETEL ALARM BARU:\n"
+        "- Sebutkan hari, tanggal, dan jam alarm disetel dengan jelas sesuai konteks waktu saat ini.\n"
+        "- Contoh nada balasan: 'oke siap aku akan stel alarm besok selasa 30 sept 2026 jam 8.00 pagi' atau 'siap, alarm disetel hari ini jam 15.30 ya.'\n\n"
+        "3. JIKA WAKTU TIDAK SPESIFIK / TIDAK JELAS:\n"
+        "- Otomatis setel ke pukul 12.00 siang.\n"
+        "- Wajib beritahu pengguna dengan jelas dan santai bahwa disetel ke jam 12 siang karena tidak menyebutkan jam yang jelas.\n"
+        "- Contoh nada balasan: 'ya. aku stel alarm besok selasa 30 sept 2026 jam 12 siang ya, karena kau tidak menyebutkan jam yang jelas.'\n\n"
+        "4. FITUR REVISI / GANTI JADWAL (MENGINGAT CHAT SEBELUMNYA):\n"
+        "- Jika pengguna ingin meralat atau mengubah jadwal (misal: 'eh ganti jam 8 aja', 'mundurin 30 menit', 'kecepetan, ubah jadi jam 9'): perbarui jadwal tersebut dengan santai.\n"
+        "- Contoh nada balasan: 'oke siap, jadwal alarmnya sudah aku ubah jadi jam 08.00 pagi ya.'\n\n"
+        "5. FITUR PEMBATALAN ALARM:\n"
+        "- Jika pengguna membatalkan (misal: 'batalin', 'ga jadi deh', 'cancel alarm'): batalkan alarm dengan santai.\n"
+        "- Contoh nada balasan: 'oke, alarmnya sudah aku batalkan ya.'";
+
+    // Menyusun riwayat percakapan (Memory) agar bot memahami revisi dan pembatalan
+    final List<Map<String, dynamic>> contents = [];
+    String lastRole = '';
+
+    // Ambil riwayat chat agar bot memiliki konteks percakapan sebelumnya
+    for (final m in _messages) {
+      final currentRole = m.isUser ? 'user' : 'model';
+      // Pastikan percakapan pertama ke server AI dimulai dari pengguna
+      if (contents.isEmpty && currentRole != 'user') continue;
+
+      if (currentRole == lastRole && contents.isNotEmpty) {
+        final existingText = contents.last['parts'][0]['text'] as String;
+        contents.last['parts'] = [{'text': '$existingText\n${m.text}'}];
+      } else {
+        contents.add({
+          'role': currentRole,
+          'parts': [{'text': m.text}],
+        });
+        lastRole = currentRole;
+      }
+    }
+
+    // Model resmi aktif Google
     final models = [
       'gemini-3.8-flash',
       'gemini-3.8-flash-lite',
       'gemini-3.5-flash',
     ];
-
-    // Instruksi sistem: penanganan bahasa santai/gaul + aturan default jam 12.00 siang jika waktu tidak spesifik
-    final systemInstruction =
-        "Kamu adalah asisten pengatur alarm cerdas bernama Smart Alarm by Pak Bagas. "
-        "Tugasmu adalah menganalisis pesan pengguna yang meminta setel alarm, pengingat, atau bangun tidur "
-        "dalam bahasa apa pun dan ragam bahasa apa pun (baku/santai/gaul/singkatan). "
-        "Konfirmasi kembali alarm tersebut dengan ramah, sebutkan jam berapa alarm disetel dan tujuannya.\n\n"
-        "ATURAN KHUSUS WAKTU:\n"
-        "Jika pengguna meminta disetelkan alarm tetapi TIDAK menyebutkan jam atau waktu yang spesifik (misalnya hanya bilang: 'bangunin gw ya', 'setel alarm dong', 'ingetin gw nanti'), "
-        "kamu WAJIB menyetel alarm secara otomatis ke pukul 12.00 siang. "
-        "Pada situasi ini, kamu WAJIB memberitahukan pengguna secara jelas di balasanmu bahwa karena dia tidak memberikan waktu yang spesifik, alarm otomatis kamu setelkan ke pukul 12.00 siang.";
 
     String lastError = '';
 
@@ -136,13 +181,12 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
             'x-goog-api-key': geminiApiKey,
           },
           body: jsonEncode({
-            "contents": [
-              {
-                "parts": [
-                  {"text": "$systemInstruction\n\nPesan pengguna: $prompt"}
-                ]
-              }
-            ]
+            "system_instruction": {
+              "parts": [
+                {"text": systemInstruction}
+              ]
+            },
+            "contents": contents
           }),
         );
 
