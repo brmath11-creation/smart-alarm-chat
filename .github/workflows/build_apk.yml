@@ -25,14 +25,30 @@ jobs:
           flutter-version: '3.24.0'
           channel: 'stable'
 
-      - name: Generate Android Project
+      - name: Recreate Clean Android Structure
         run: |
-          flutter create . --platforms=android --org com.smartalarm.pakbagas
+          rm -rf android
+          flutter create . --platforms=android
 
-      - name: Inject Permissions and WakeLock
+      - name: Inject Android Permissions
         run: |
-          sed -i '/<manifest/a \    <uses-permission android:name="android.permission.VIBRATE"/>\n    <uses-permission android:name="android.permission.WAKE_LOCK"/>\n    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>' android/app/src/main/AndroidManifest.xml
-          sed -i '/<activity/a \            android:showWhenLocked="true"\n            android:turnScreenOn="true"\n            android:keepScreenOn="true"' android/app/src/main/AndroidManifest.xml
+          python3 - << 'EOF'
+          manifest_path = "android/app/src/main/AndroidManifest.xml"
+          with open(manifest_path, "r") as f:
+              content = f.read()
+
+          perms = """
+              <uses-permission android:name="android.permission.VIBRATE"/>
+              <uses-permission android:name="android.permission.WAKE_LOCK"/>
+              <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+              <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
+          """
+          content = content.replace("<manifest", "<manifest" + perms, 1)
+          content = content.replace("<activity", '<activity android:showWhenLocked="true" android:turnScreenOn="true" android:keepScreenOn="true"', 1)
+
+          with open(manifest_path, "w") as f:
+              f.write(content)
+          EOF
 
       - name: Get Dependencies
         run: flutter pub get
