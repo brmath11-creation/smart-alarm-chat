@@ -94,12 +94,12 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
   
   // Pengaturan Nada Dering & Getar
   bool _isVibrateEnabled = true;
-  double _alarmVolume = 0.8; // 80% volume default
+  double _alarmVolume = 1.0; // Volume maksimal 100%
   
   final AudioPlayer _audioPlayer = AudioPlayer();
   final List<RingtoneOption> _availableRingtones = const [
     RingtoneOption(
-      name: 'Digital Beep Klasik',
+      name: 'Digital Beep Klasik (Kencang)',
       url: 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg',
     ),
     RingtoneOption(
@@ -107,16 +107,15 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
       url: 'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg',
     ),
     RingtoneOption(
-      name: 'Sirene Bangun Cepat',
-      url: 'https://actions.google.com/sounds/v1/alarms/beep_short.ogg',
+      name: 'Sirene Bangun Cepat (Kencang)',
+      url: 'https://actions.google.com/sounds/v1/emergency/siren_emergency.ogg',
     ),
     RingtoneOption(
-      name: 'Lonceng Mekanikal',
+      name: 'Lonceng Mekanikal (Kencang)',
       url: 'https://actions.google.com/sounds/v1/alarms/mechanical_clock_ring.ogg',
     ),
   ];
   late RingtoneOption _selectedRingtone;
-  String _customRingtoneName = '';
 
   @override
   void initState() {
@@ -169,7 +168,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
     setState(() {
       alarm.isTriggered = true;
       _currentlyRingingAlarm = alarm;
-      _ringSecondsRemaining = 300; // 5 menit
+      _ringSecondsRemaining = 300; // 5 menit penuh
     });
 
     try {
@@ -177,18 +176,19 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
       await _audioPlayer.setVolume(_alarmVolume);
       await _audioPlayer.play(UrlSource(_selectedRingtone.url));
     } catch (_) {
-      // Audio fallback jika perangkat membatasi audio otomatis
+      // Audio fallback jika autoplay dibatasi sementara
     }
 
-    // Efek getar berulang jika opsi getar aktif
     if (_isVibrateEnabled) {
       _vibrationPulseTimer?.cancel();
-      _vibrationPulseTimer = Timer.periodic(const Duration(milliseconds: 900), (_) {
+      // Pola pulsa getar kencang berulang setiap 500ms (Haptic + Hardware Motor Vibrate)
+      _vibrationPulseTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        HapticFeedback.vibrate();
         HapticFeedback.heavyImpact();
       });
     }
 
-    // Timer penghitung mundur 5 menit tanpa interupsi
+    // Timer penghitung mundur 5 menit tanpa henti
     _ringingDurationTimer?.cancel();
     _ringingDurationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) return;
@@ -283,7 +283,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
     final timeStr = DateFormat('HH:mm').format(now);
     final currentDateStr = '$dayName, ${now.day} $monthName ${now.year} pukul $timeStr WIB';
 
-    // Rangkuman memori obrolan terakhir
+    // Rangkuman konteks 6 obrolan terakhir
     String historyContext = "";
     final recentMessages = _messages.length > 6
         ? _messages.sublist(_messages.length - 6)
@@ -301,12 +301,13 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
         "2. NADA BALASAN: Santai, akrab, jelas, singkat (maksimal 1-2 kalimat). Sebutkan semua waktu alarm yang disetel.\n"
         "3. JIKA WAKTU RELATIF (contoh '2 menit lagi', '1 jam lagi'): Hitung tepat dari WAKTU PERANGKAT SAAT INI.\n"
         "4. JIKA WAKTU TIDAK SPESIFIK: Otomatis setel ke jam 12.00 siang hari yang dimaksud dan beritahu santai bahwa disetel jam 12 siang karena tidak menyebutkan jam yang jelas.\n"
-        "5. JIKA PERINTAH SANGAT TIDAK JELAS / BUKAN TENTANG ALARM: Balas TEPAT DENGAN: 'Aku tidak mengerti maksudmu, bisa kau jelaskan lebih detail agar aku bisa setel alarm sesuai permintaanmu?' dan beri action 'NONE'.\n"
-        "6. JIKA MEMBATALKAN/REVISI: Sesuaikan dan jelaskan santai.\n\n"
+        "5. KETERANGAN KEGIATAN: Jika user menyebutkan kegiatan (contoh: 'mencuci baju', 'bangun tidur', 'kuliah'), masukkan ke field 'note' dengan awalan 'Waktunya ...'. JIKA USER TIDAK MENYEBUTKAN KEGIATAN, kosongkan string note menjadi: \"\".\n"
+        "6. JIKA PERINTAH SANGAT TIDAK JELAS / BUKAN TENTANG ALARM: Balas TEPAT DENGAN: 'Aku tidak mengerti maksudmu, bisa kau jelaskan lebih detail agar aku bisa setel alarm sesuai permintaanmu?' dan beri action 'NONE'.\n"
+        "7. JIKA MEMBATALKAN/REVISI: Sesuaikan dan jelaskan santai.\n\n"
         "FORMAT WAJIB KELUARAN:\n"
         "Kamu WAJIB mengakhiri jawabanmu dengan blok data JSON tersembunyi berformat seperti ini:\n"
         "|||JSON_DATA\n"
-        "{\"action\":\"SET|CANCEL|NONE\",\"alarms\":[{\"year\":${now.year},\"month\":${now.month},\"day\":${now.day},\"hour\":12,\"minute\":0,\"note\":\"label alarm\"}]}\n"
+        "{\"action\":\"SET|CANCEL|NONE\",\"alarms\":[{\"year\":${now.year},\"month\":${now.month},\"day\":${now.day},\"hour\":12,\"minute\":0,\"note\":\"Waktunya mencuci baju\"}]}\n"
         "JSON_DATA|||\n\n"
         "RIWAYAT PERCAKAPAN:\n"
         "$historyContext\n"
@@ -364,7 +365,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
           }
         }
       } catch (_) {
-        // Melanjutkan ke model cadangan berikutnya jika terjadi kendala pada satu endpoint
+        // Melanjutkan ke endpoint model cadangan berikutnya jika terjadi kendala
       }
     }
 
@@ -396,7 +397,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
               a['hour'] ?? 12,
               a['minute'] ?? 0,
             );
-            final note = (a['note'] ?? '-').toString();
+            final note = (a['note'] ?? '').toString();
 
             setState(() {
               _activeAlarms.add(AlarmItem(
@@ -566,19 +567,22 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                         SwitchListTile(
                           contentPadding: EdgeInsets.zero,
                           title: const Text('Efek Getar (Vibrasi)'),
-                          subtitle: const Text('Getar otomatis saat alarm berdering (5 menit)'),
+                          subtitle: const Text('Getar kencang berulang saat alarm berdering (5 menit)'),
                           activeColor: const Color(0xFF075E54),
                           value: _isVibrateEnabled,
                           onChanged: (val) {
                             setState(() => _isVibrateEnabled = val);
                             setModalState(() {});
-                            if (val) HapticFeedback.heavyImpact();
+                            if (val) {
+                              HapticFeedback.vibrate();
+                              HapticFeedback.heavyImpact();
+                            }
                           },
                         ),
 
                         const Divider(height: 20),
 
-                        // BAGIAN 3: NADA DERING & PILIH DARI PERANGKAT
+                        // BAGIAN 3: NADA DERING (DAFTAR RESMI BAWAAN)
                         const Text(
                           'Pilih Nada Dering',
                           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
@@ -595,7 +599,6 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                               if (val != null) {
                                 setState(() {
                                   _selectedRingtone = val;
-                                  _customRingtoneName = '';
                                 });
                                 setModalState(() {});
                                 _previewRingtone(val.url);
@@ -603,26 +606,6 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                             },
                           );
                         }),
-                        ListTile(
-                          contentPadding: EdgeInsets.zero,
-                          leading: const Icon(Icons.folder_open, color: Color(0xFF075E54)),
-                          title: Text(
-                            _customRingtoneName.isEmpty
-                                ? 'Pilih berkas dari perangkat...'
-                                : 'Nada Perangkat: $_customRingtoneName',
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w500),
-                          ),
-                          trailing: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF075E54),
-                              foregroundColor: Colors.white,
-                            ),
-                            onPressed: () {
-                              _simulateDeviceRingtonePicker(setModalState);
-                            },
-                            child: const Text('Browse', style: TextStyle(fontSize: 12)),
-                          ),
-                        ),
 
                         const SizedBox(height: 12),
 
@@ -658,55 +641,6 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
     );
   }
 
-  void _simulateDeviceRingtonePicker(StateSetter setModalState) {
-    showDialog(
-      context: context,
-      builder: (ctx) {
-        final textCtrl = TextEditingController(text: 'Nada_Favorit_HP.mp3');
-        return AlertDialog(
-          title: const Text('Pilih Berkas Suara Perangkat', style: TextStyle(fontSize: 16)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Text('Masukkan nama berkas audio yang ada di penyimpanan ponsel:'),
-              const SizedBox(height: 8),
-              TextField(
-                controller: textCtrl,
-                decoration: const InputDecoration(
-                  border: OutlineInputBorder(),
-                  hintText: 'nama_audio.mp3',
-                ),
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('Batal'),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF075E54),
-                foregroundColor: Colors.white,
-              ),
-              onPressed: () {
-                final pickedName = textCtrl.text.trim();
-                if (pickedName.isNotEmpty) {
-                  setState(() {
-                    _customRingtoneName = pickedName;
-                  });
-                  setModalState(() {});
-                }
-                Navigator.pop(ctx);
-              },
-              child: const Text('Gunakan'),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
   Future<void> _previewRingtone(String url) async {
     try {
       await _audioPlayer.stop();
@@ -718,7 +652,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
     } catch (_) {}
   }
 
-  Widget _buildRingingOverlay() {
+  Widget _buildFullScreenRingingOverlay() {
     if (_currentlyRingingAlarm == null) return const SizedBox.shrink();
 
     final minutes = _ringSecondsRemaining ~/ 60;
@@ -726,70 +660,112 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
     final timeFormatted =
         '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
 
+    const months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+      'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
+    ];
+    final dt = _currentlyRingingAlarm!.targetTime;
+    final dateStr = '${dt.day} ${months[dt.month - 1]} ${dt.year}';
+    final timeStr =
+        '${dt.hour.toString().padLeft(2, '0')}.${dt.minute.toString().padLeft(2, '0')}';
+    final note = _currentlyRingingAlarm!.note.trim();
+
     return Container(
-      color: Colors.red.shade900.withOpacity(0.95),
+      color: const Color(0xFFB71C1C), // Merah pekat layar penuh menutupi chat
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Icon(Icons.alarm_on, color: Colors.white, size: 64),
-          const SizedBox(height: 8),
-          const Text(
-            'ALARM BERDERING!',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.5,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            _formatRekapItem(_currentlyRingingAlarm!),
-            style: const TextStyle(color: Colors.white70, fontSize: 14),
-            textAlign: TextAlign.center,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Berdering otomatis selama: $timeFormatted',
-            style: const TextStyle(
-              color: Colors.yellowAccent,
-              fontSize: 14,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 16),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ElevatedButton.icon(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.red.shade900,
-                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                ),
-                icon: const Icon(Icons.stop_circle, size: 22),
-                label: const Text(
-                  'MATIKAN',
-                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                ),
-                onPressed: _stopAlarmRinging,
+      height: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+      child: SafeArea(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Spacer(),
+            const Icon(Icons.alarm_on, color: Colors.white, size: 96),
+            const SizedBox(height: 16),
+            const Text(
+              'ALARM BERDERING!',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 2.0,
               ),
-              const SizedBox(width: 14),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Colors.white, width: 1.5),
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '$dateStr ($timeStr)',
+              style: const TextStyle(color: Colors.white70, fontSize: 18),
+            ),
+            if (note.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.white24,
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                icon: const Icon(Icons.snooze, size: 20),
-                label: const Text('Tunda 5 Mnt'),
-                onPressed: () => _snoozeAlarm(5),
+                child: Text(
+                  note,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
               ),
             ],
-          ),
-        ],
+            const SizedBox(height: 20),
+            Text(
+              'Berdering otomatis selama: $timeFormatted',
+              style: const TextStyle(
+                color: Colors.yellowAccent,
+                fontSize: 16,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const Spacer(),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFFB71C1C),
+                    padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
+                  icon: const Icon(Icons.stop_circle, size: 24),
+                  label: const Text(
+                    'MATIKAN',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+                  ),
+                  onPressed: _stopAlarmRinging,
+                ),
+                const SizedBox(width: 16),
+                OutlinedButton.icon(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Colors.white,
+                    side: const BorderSide(color: Colors.white, width: 2),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(30),
+                    ),
+                  ),
+                  icon: const Icon(Icons.snooze, size: 22),
+                  label: const Text(
+                    'Tunda 5 Mnt',
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  onPressed: () => _snoozeAlarm(5),
+                ),
+              ],
+            ),
+            const SizedBox(height: 20),
+          ],
+        ),
       ),
     );
   }
@@ -894,91 +870,98 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
           ),
         ],
       ),
-      body: Column(
+      body: Stack(
         children: [
-          // Banner layar dering alarm aktif 5 menit
-          _buildRingingOverlay(),
-
-          // Daftar Gelembung Chat
-          Expanded(
-            child: ListView.builder(
-              controller: _scrollController,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
-              itemCount: _messages.length,
-              itemBuilder: (context, index) {
-                final message = _messages[index];
-                return Align(
-                  alignment: message.isUser ? Alignment.centerRight : Alignment.centerLeft,
-                  child: Container(
-                    margin: const EdgeInsets.symmetric(vertical: 4),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                    constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
-                    decoration: BoxDecoration(
-                      color: message.isUser ? const Color(0xFFE7FFDB) : Colors.white,
-                      borderRadius: BorderRadius.only(
-                        topLeft: const Radius.circular(12),
-                        topRight: const Radius.circular(12),
-                        bottomLeft: message.isUser ? const Radius.circular(12) : const Radius.circular(0),
-                        bottomRight: message.isUser ? const Radius.circular(0) : const Radius.circular(12),
+          // Tampilan Obrolan Chatbot
+          Column(
+            children: [
+              Expanded(
+                child: ListView.builder(
+                  controller: _scrollController,
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 15),
+                  itemCount: _messages.length,
+                  itemBuilder: (context, index) {
+                    final message = _messages[index];
+                    return Align(
+                      alignment: message.isUser ? Alignment.centerRight : Alignment.centerLeft,
+                      child: Container(
+                        margin: const EdgeInsets.symmetric(vertical: 4),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        constraints: BoxConstraints(maxWidth: MediaQuery.of(context).size.width * 0.75),
+                        decoration: BoxDecoration(
+                          color: message.isUser ? const Color(0xFFE7FFDB) : Colors.white,
+                          borderRadius: BorderRadius.only(
+                            topLeft: const Radius.circular(12),
+                            topRight: const Radius.circular(12),
+                            bottomLeft: message.isUser ? const Radius.circular(12) : const Radius.circular(0),
+                            bottomRight: message.isUser ? const Radius.circular(0) : const Radius.circular(12),
+                          ),
+                          boxShadow: const [
+                            BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1)),
+                          ],
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(message.text, style: const TextStyle(fontSize: 15, color: Colors.black87)),
+                            const SizedBox(height: 4),
+                            Text(message.time, style: const TextStyle(fontSize: 10, color: Colors.black45)),
+                          ],
+                        ),
                       ),
-                      boxShadow: const [
-                        BoxShadow(color: Colors.black12, blurRadius: 2, offset: Offset(0, 1)),
-                      ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        Text(message.text, style: const TextStyle(fontSize: 15, color: Colors.black87)),
-                        const SizedBox(height: 4),
-                        Text(message.time, style: const TextStyle(fontSize: 10, color: Colors.black45)),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-          if (_isLoading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 6),
-              child: Text(
-                "Pak Bagas sedang membaca perintah...",
-                style: TextStyle(fontSize: 12, color: Colors.black54),
+                    );
+                  },
+                ),
               ),
-            ),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-            color: Colors.white,
-            child: Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: _controller,
-                    textInputAction: TextInputAction.send,
-                    onSubmitted: (_) => _handleSendMessage(),
-                    decoration: InputDecoration(
-                      hintText: 'Ketik perintah alarm...',
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                      filled: true,
-                      fillColor: const Color(0xFFF0F0F0),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(24),
-                        borderSide: BorderSide.none,
+              if (_isLoading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 6),
+                  child: Text(
+                    "Pak Bagas sedang membaca perintah...",
+                    style: TextStyle(fontSize: 12, color: Colors.black54),
+                  ),
+                ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                color: Colors.white,
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _controller,
+                        textInputAction: TextInputAction.send,
+                        onSubmitted: (_) => _handleSendMessage(),
+                        decoration: InputDecoration(
+                          hintText: 'Ketik perintah alarm...',
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          filled: true,
+                          fillColor: const Color(0xFFF0F0F0),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(24),
+                            borderSide: BorderSide.none,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
+                    const SizedBox(width: 8),
+                    CircleAvatar(
+                      backgroundColor: const Color(0xFF075E54),
+                      child: IconButton(
+                        icon: const Icon(Icons.send, color: Colors.white, size: 20),
+                        onPressed: _handleSendMessage,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: 8),
-                CircleAvatar(
-                  backgroundColor: const Color(0xFF075E54),
-                  child: IconButton(
-                    icon: const Icon(Icons.send, color: Colors.white, size: 20),
-                    onPressed: _handleSendMessage,
-                  ),
-                ),
-              ],
-            ),
+              ),
+            ],
           ),
+
+          // Layar Penuh Merah (Full Screen Overlay) saat alarm berdering
+          if (_currentlyRingingAlarm != null)
+            Positioned.fill(
+              child: _buildFullScreenRingingOverlay(),
+            ),
         ],
       ),
     );
