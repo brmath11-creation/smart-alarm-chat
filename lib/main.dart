@@ -99,7 +99,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
   final AudioPlayer _audioPlayer = AudioPlayer();
   final List<RingtoneOption> _availableRingtones = const [
     RingtoneOption(
-      name: 'Digital Beep Klasik (Kencang)',
+      name: 'Digital Beep Klasik',
       url: 'https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg',
     ),
     RingtoneOption(
@@ -107,11 +107,11 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
       url: 'https://actions.google.com/sounds/v1/alarms/alarm_clock.ogg',
     ),
     RingtoneOption(
-      name: 'Sirene Bangun Cepat (Kencang)',
-      url: 'https://actions.google.com/sounds/v1/emergency/siren_emergency.ogg',
+      name: 'Sirene Bangun Cepat',
+      url: 'https://actions.google.com/sounds/v1/emergency/emergency_siren_close_long.ogg',
     ),
     RingtoneOption(
-      name: 'Lonceng Mekanikal (Kencang)',
+      name: 'Lonceng Mekanikal',
       url: 'https://actions.google.com/sounds/v1/alarms/mechanical_clock_ring.ogg',
     ),
   ];
@@ -147,7 +147,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
 
   void _startClockEngine() {
     _alarmClockTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (_currentlyRingingAlarm != null) return; // Jangan tumpuk jika sedang berdering
+      if (_currentlyRingingAlarm != null) return;
 
       final now = DateTime.now();
       for (final alarm in _activeAlarms) {
@@ -175,13 +175,11 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
       await _audioPlayer.setReleaseMode(ReleaseMode.loop);
       await _audioPlayer.setVolume(_alarmVolume);
       await _audioPlayer.play(UrlSource(_selectedRingtone.url));
-    } catch (_) {
-      // Audio fallback jika autoplay dibatasi sementara
-    }
+    } catch (_) {}
 
     if (_isVibrateEnabled) {
       _vibrationPulseTimer?.cancel();
-      // Pola pulsa getar kencang berulang setiap 500ms (Haptic + Hardware Motor Vibrate)
+      // Pola getar berulang kencang (Haptic + Hardware Motor Vibrate)
       _vibrationPulseTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
         HapticFeedback.vibrate();
         HapticFeedback.heavyImpact();
@@ -292,22 +290,22 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
       historyContext += "${m.isUser ? 'Pengguna' : 'Pak Bagas'}: ${m.text}\n";
     }
 
-    // Instruksi sistem multi-alarm terpadu
+    // Instruksi sistem ketat dengan konfirmasi waktu spesifik
     final fullPrompt =
         "Kamu adalah Pak Bagas, asisten pengatur alarm cerdas.\n"
         "WAKTU PERANGKAT SAAT INI: $currentDateStr (Format: YYYY=${now.year}, MM=${now.month}, DD=${now.day}, HH=${now.hour}, mm=${now.minute}).\n\n"
-        "ATURAN & TUGAS:\n"
-        "1. Pengguna bisa meminta 1 atau LEBIH DARI SATU alarm sekaligus dalam 1 chat.\n"
-        "2. NADA BALASAN: Santai, akrab, jelas, singkat (maksimal 1-2 kalimat). Sebutkan semua waktu alarm yang disetel.\n"
-        "3. JIKA WAKTU RELATIF (contoh '2 menit lagi', '1 jam lagi'): Hitung tepat dari WAKTU PERANGKAT SAAT INI.\n"
-        "4. JIKA WAKTU TIDAK SPESIFIK: Otomatis setel ke jam 12.00 siang hari yang dimaksud dan beritahu santai bahwa disetel jam 12 siang karena tidak menyebutkan jam yang jelas.\n"
-        "5. KETERANGAN KEGIATAN: Jika user menyebutkan kegiatan (contoh: 'mencuci baju', 'bangun tidur', 'kuliah'), masukkan ke field 'note' dengan awalan 'Waktunya ...'. JIKA USER TIDAK MENYEBUTKAN KEGIATAN, kosongkan string note menjadi: \"\".\n"
+        "ATURAN & TUGAS WAJIB:\n"
+        "1. Pengguna bisa meminta 1 atau LEBIH DARI SATU alarm sekaligus dalam 1 pesan.\n"
+        "2. NADA BALASAN & KONFIRMASI JAM: Santai, akrab, jelas, singkat (maksimal 1-2 kalimat). KAMU WAJIB MENULISKAN JAM TARGET DAN HARI/TANGGAL HASIL PERHITUNGAN SECARA SPESIFIK (Contoh: 'Oke siap, alarm sudah saya stel untuk hari ini jam 15:34 WIB ya'). DILARANG HANYA MEMBALAS 'alarm 2 menit lagi sudah dipasang' TANPA MENYEBUTKAN ANGKA JAM HASIL PERHITUNGANNYA!\n"
+        "3. JIKA WAKTU RELATIF (contoh '2 menit lagi', '1 jam lagi'): Hitung tepat jam target dari WAKTU PERANGKAT SAAT INI ($timeStr), lalu sebutkan jam target tersebut di balasan teksmu.\n"
+        "4. JIKA WAKTU TIDAK SPESIFIK: Otomatis setel ke jam 12.00 siang hari yang dimaksud dan beritahu santai bahwa disetel jam 12 siang karena pengguna tidak menyebutkan jam yang jelas.\n"
+        "5. KETERANGAN KEGIATAN: Jika pengguna menyebutkan kegiatan (contoh: 'mencuci baju', 'bangun tidur', 'kuliah'), masukkan ke field 'note' dengan format 'Waktunya ...'. JIKA USER TIDAK MENYEBUTKAN KEGIATAN, kosongkan string note menjadi: \"\".\n"
         "6. JIKA PERINTAH SANGAT TIDAK JELAS / BUKAN TENTANG ALARM: Balas TEPAT DENGAN: 'Aku tidak mengerti maksudmu, bisa kau jelaskan lebih detail agar aku bisa setel alarm sesuai permintaanmu?' dan beri action 'NONE'.\n"
-        "7. JIKA MEMBATALKAN/REVISI: Sesuaikan dan jelaskan santai.\n\n"
+        "7. JIKA MEMBATALKAN/REVISI: Sesuaikan dan jelaskan santai waktu yang baru atau yang dibatalkan.\n\n"
         "FORMAT WAJIB KELUARAN:\n"
         "Kamu WAJIB mengakhiri jawabanmu dengan blok data JSON tersembunyi berformat seperti ini:\n"
         "|||JSON_DATA\n"
-        "{\"action\":\"SET|CANCEL|NONE\",\"alarms\":[{\"year\":${now.year},\"month\":${now.month},\"day\":${now.day},\"hour\":12,\"minute\":0,\"note\":\"Waktunya mencuci baju\"}]}\n"
+        "{\"action\":\"SET|CANCEL|NONE\",\"alarms\":[{\"year\":${now.year},\"month\":${now.month},\"day\":${now.day},\"hour\":15,\"minute\":34,\"note\":\"\"}]}\n"
         "JSON_DATA|||\n\n"
         "RIWAYAT PERCAKAPAN:\n"
         "$historyContext\n"
@@ -365,7 +363,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
           }
         }
       } catch (_) {
-        // Melanjutkan ke endpoint model cadangan berikutnya jika terjadi kendala
+        // Lanjut ke endpoint cadangan
       }
     }
 
@@ -412,9 +410,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
             ? visibleText
             : "Oke siap, alarmnya sudah berhasil aku stel ya.";
       }
-    } catch (_) {
-      // Fallback parsing aman
-    }
+    } catch (_) {}
 
     return rawReply.replaceAll(RegExp(r'\|\|\|JSON_DATA[\s\S]*?JSON_DATA\|\|\|'), '').trim();
   }
@@ -582,26 +578,26 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
 
                         const Divider(height: 20),
 
-                        // BAGIAN 3: NADA DERING (DAFTAR RESMI BAWAAN)
+                        // BAGIAN 3: PILIHAN NADA DERING (NAMA BERSIH TANPA KATA KENCANG)
                         const Text(
                           'Pilih Nada Dering',
                           style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
                         ),
                         const SizedBox(height: 6),
                         ..._availableRingtones.map((tone) {
-                          return RadioListTile<RingtoneOption>(
+                          return RadioListTile<String>(
                             contentPadding: EdgeInsets.zero,
                             activeColor: const Color(0xFF075E54),
                             title: Text(tone.name),
-                            value: tone,
-                            groupValue: _selectedRingtone,
+                            value: tone.url,
+                            groupValue: _selectedRingtone.url,
                             onChanged: (val) {
                               if (val != null) {
                                 setState(() {
-                                  _selectedRingtone = val;
+                                  _selectedRingtone = _availableRingtones.firstWhere((t) => t.url == val);
                                 });
                                 setModalState(() {});
-                                _previewRingtone(val.url);
+                                _previewRingtone(val);
                               }
                             },
                           );
@@ -646,7 +642,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
       await _audioPlayer.stop();
       await _audioPlayer.setVolume(_alarmVolume);
       await _audioPlayer.play(UrlSource(url));
-      Timer(const Duration(seconds: 2), () {
+      Timer(const Duration(seconds: 3), () {
         _audioPlayer.stop();
       });
     } catch (_) {}
@@ -812,7 +808,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
               ),
             ),
             const SizedBox(width: 12),
-            // Nama Profil dan Status Online Interaktif
+            // Nama Profil dan Status Online
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -829,7 +825,6 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
                   const SizedBox(height: 2),
                   Row(
                     children: [
-                      // Titik Hijau Menyala (Neon Glow)
                       Container(
                         width: 8,
                         height: 8,
@@ -862,7 +857,6 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
           ],
         ),
         actions: [
-          // Titik tiga vertikal menu pengaturan
           IconButton(
             icon: const Icon(Icons.more_vert, color: Colors.white),
             tooltip: 'Pengaturan & Rekap Alarm',
@@ -872,7 +866,6 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
       ),
       body: Stack(
         children: [
-          // Tampilan Obrolan Chatbot
           Column(
             children: [
               Expanded(
@@ -957,7 +950,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
             ],
           ),
 
-          // Layar Penuh Merah (Full Screen Overlay) saat alarm berdering
+          // Layar penuh merah menutupi seluruh chat ketika alarm berdering
           if (_currentlyRingingAlarm != null)
             Positioned.fill(
               child: _buildFullScreenRingingOverlay(),
