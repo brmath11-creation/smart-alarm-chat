@@ -283,7 +283,7 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
     final timeStr = DateFormat('HH:mm').format(now);
     final currentDateStr = '$dayName, ${now.day} $monthName ${now.year} pukul $timeStr WIB';
 
-    // Rangkuman memori obrolan terakhir (maksimal 6 percakapan terakhir agar payload ringan)
+    // Rangkuman memori obrolan terakhir
     String historyContext = "";
     final recentMessages = _messages.length > 6
         ? _messages.sublist(_messages.length - 6)
@@ -312,8 +312,8 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
         "$historyContext\n"
         "Perintah baru pengguna: $prompt";
 
-    // Urutan model resmi aktif
-    final models = ['gemini-3.8-flash', 'gemini-2.0-flash', 'gemini-2.0-flash-lite'];
+    // Urutan model resmi aktif Google AI Studio
+    final models = ['gemini-3.5-flash', 'gemini-3.8-flash', 'gemini-3.1-flash-lite'];
 
     for (final model in models) {
       final url = Uri.parse(
@@ -336,22 +336,35 @@ class _ChatAlarmScreenState extends State<ChatAlarmScreen> {
               }
             ],
             "generationConfig": {
-              "maxOutputTokens": 300,
-              "temperature": 0.2
+              "maxOutputTokens": 1000
             }
           }),
-        ).timeout(const Duration(seconds: 25)); // Timeout diperpanjang hingga 25 detik untuk jaringan seluler
+        ).timeout(const Duration(seconds: 25));
 
         if (response.statusCode == 200) {
           final data = jsonDecode(response.body);
-          final rawReply = data['candidates']?[0]?['content']?['parts']?[0]?['text'];
-          if (rawReply != null && rawReply.toString().trim().isNotEmpty) {
-            setState(() => _isOnline = true);
-            return _parseAndRegisterAlarms(rawReply.toString().trim());
+          final candidates = data['candidates'] as List?;
+          if (candidates != null && candidates.isNotEmpty) {
+            final parts = candidates[0]?['content']?['parts'] as List?;
+            if (parts != null && parts.isNotEmpty) {
+              String replyText = '';
+              for (final p in parts) {
+                if (p is Map && p['text'] != null && p['thought'] != true) {
+                  replyText += p['text'].toString();
+                }
+              }
+              if (replyText.isEmpty && parts.last['text'] != null) {
+                replyText = parts.last['text'].toString();
+              }
+              if (replyText.trim().isNotEmpty) {
+                setState(() => _isOnline = true);
+                return _parseAndRegisterAlarms(replyText.trim());
+              }
+            }
           }
         }
       } catch (_) {
-        // Melanjutkan ke model cadangan berikutnya jika terjadi kendala jaringan
+        // Melanjutkan ke model cadangan berikutnya jika terjadi kendala pada satu endpoint
       }
     }
 
