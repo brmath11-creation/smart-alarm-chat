@@ -1,85 +1,47 @@
 name: Build Android APK
 
 on:
-push:
-branches:
-- main
-workflow_dispatch:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
-build:
-runs-on: ubuntu-latest
-steps:
-- name: Checkout Repository
-uses: actions/checkout@v4
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-  - name: Setup Java JDK
-    uses: actions/setup-java@v4
-    with:
-      distribution: 'temurin'
-      java-version: '17'
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-  - name: Setup Flutter SDK
-    uses: subosito/flutter-action@v2
-    with:
-      channel: 'stable'
-      cache: true
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
 
-  - name: Recreate Android Project Platform
-    run: flutter create --platforms=android --org com.smartalarm.app .
+      - name: Generate Android Project
+        run: |
+          flutter create . --platforms=android --org com.smartalarm.pakbagas
 
-  - name: Configure Android Permissions and Features
-    run: |
-      cat << 'EOF' > android/app/src/main/AndroidManifest.xml
-      <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-          package="com.smartalarm.app">
-          <uses-permission android:name="android.permission.VIBRATE"/>
-          <uses-permission android:name="android.permission.WAKE_LOCK"/>
-          <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
-          <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
-          <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>
-          <uses-permission android:name="android.permission.INTERNET"/>
-          <application
-              android:label="Smart Alarm by Pak Bagas"
-              android:name="${applicationName}"
-              android:icon="@mipmap/ic_launcher">
-              <activity
-                  android:name=".MainActivity"
-                  android:exported="true"
-                  android:launchMode="singleTop"
-                  android:theme="@style/LaunchTheme"
-                  android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
-                  android:hardwareAccelerated="true"
-                  android:windowSoftInputMode="adjustResize"
-                  android:showWhenLocked="true"
-                  android:turnScreenOn="true"
-                  android:keepScreenOn="true">
-                  <meta-data
-                    android:name="io.flutter.embedding.android.NormalTheme"
-                    android:resource="@style/NormalTheme"
-                    />
-                  <intent-filter>
-                      <action android:name="android.intent.action.MAIN"/>
-                      <category android:name="android.intent.category.LAUNCHER"/>
-                  </intent-filter>
-              </activity>
-              <meta-data
-                  android:name="flutterEmbedding"
-                  android:value="2" />
-          </application>
-      </manifest>
-      EOF
+      - name: Inject Permissions and WakeLock
+        run: |
+          sed -i '/<manifest/a \    <uses-permission android:name="android.permission.VIBRATE"/>\n    <uses-permission android:name="android.permission.WAKE_LOCK"/>\n    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>\n    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>' android/app/src/main/AndroidManifest.xml
+          sed -i '/<activity/a \            android:showWhenLocked="true"\n            android:turnScreenOn="true"\n            android:keepScreenOn="true"' android/app/src/main/AndroidManifest.xml
 
-  - name: Install Dependencies
-    run: flutter pub get
+      - name: Get Dependencies
+        run: flutter pub get
 
-  - name: Build Android Release APK
-    env:
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-    run: flutter build apk --release --dart-define=GEMINI_API_KEY=$GEMINI_API_KEY
+      - name: Build APK
+        run: flutter build apk --release
 
-  - name: Upload APK Artifact
-    uses: actions/upload-artifact@v4
-    with:
-      name: smart-alarm-apk
-      path: build/app/outputs/flutter-apk/app-release.apk
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: smart-alarm-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
